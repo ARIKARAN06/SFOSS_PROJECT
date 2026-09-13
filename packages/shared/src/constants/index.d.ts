@@ -1,0 +1,31 @@
+export declare const APP_NAME = "SFOSS FURY 2.0";
+export declare const EVENT_ORGANIZER = "SASTRA Free & Open Source Software (SFOSS)";
+export declare const EVENT_INSTITUTION = "SASTRA Deemed to be University, SRC Kumbakonam";
+export declare const EVENT_VENUE = "Computer Lab 1";
+export declare const EVENT_DATE = "23rd September 2026";
+export declare const EVENT_TIME_WINDOW = "1:00 PM \u2013 3:00 PM IST";
+export declare const DEFAULT_ROOM_CODE = "FURY20";
+export declare const MAX_TEAMS_CAPACITY = 40;
+export declare const MAX_PARTICIPANTS_CAPACITY = 80;
+export declare const TEAM_MEMBERS_COUNT = 2;
+export declare const ROUND_1_NAME = "SYNTRACE";
+export declare const ROUND_2_NAME = "DEBUGNOVA";
+export declare const MARKS_PER_CORRECT = 1;
+export declare const PENALTY_PER_WRONG = -1;
+export declare const UNANSWERED_SCORE = 0;
+export declare const DEFAULT_ROUND_1_DURATION_MINUTES = 30;
+export declare const DEFAULT_ROUND_2_DURATION_MINUTES = 45;
+export declare const TIMER_SYNC_INTERVAL_MS = 5000;
+export declare const ANTI_CHEAT_WARNING_THRESHOLD = 5;
+export declare const COLOR_PALETTE: {
+    readonly PRIMARY_INDIGO: "#34349A";
+    readonly DARK_INDIGO: "#25256F";
+    readonly ORANGE_ACCENT: "#F58220";
+    readonly WARM_CREAM: "#FFF1DC";
+    readonly LIGHT_BLUE: "#E6F4FA";
+    readonly TEAL_ACCENT: "#176B5B";
+    readonly SOFT_LAVENDER: "#E7E6F5";
+    readonly DARK_TEXT: "#171717";
+    readonly WHITE_SURFACE: "#FFFFFF";
+};
+//# sourceMappingURL=index.d.ts.map

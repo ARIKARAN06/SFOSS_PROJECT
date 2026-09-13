@@ -1,0 +1,34 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.COLOR_PALETTE = exports.ANTI_CHEAT_WARNING_THRESHOLD = exports.TIMER_SYNC_INTERVAL_MS = exports.DEFAULT_ROUND_2_DURATION_MINUTES = exports.DEFAULT_ROUND_1_DURATION_MINUTES = exports.UNANSWERED_SCORE = exports.PENALTY_PER_WRONG = exports.MARKS_PER_CORRECT = exports.ROUND_2_NAME = exports.ROUND_1_NAME = exports.TEAM_MEMBERS_COUNT = exports.MAX_PARTICIPANTS_CAPACITY = exports.MAX_TEAMS_CAPACITY = exports.DEFAULT_ROOM_CODE = exports.EVENT_TIME_WINDOW = exports.EVENT_DATE = exports.EVENT_VENUE = exports.EVENT_INSTITUTION = exports.EVENT_ORGANIZER = exports.APP_NAME = void 0;
+exports.APP_NAME = 'SFOSS FURY 2.0';
+exports.EVENT_ORGANIZER = 'SASTRA Free & Open Source Software (SFOSS)';
+exports.EVENT_INSTITUTION = 'SASTRA Deemed to be University, SRC Kumbakonam';
+exports.EVENT_VENUE = 'Computer Lab 1';
+exports.EVENT_DATE = '23rd September 2026';
+exports.EVENT_TIME_WINDOW = '1:00 PM – 3:00 PM IST';
+exports.DEFAULT_ROOM_CODE = 'FURY20';
+exports.MAX_TEAMS_CAPACITY = 40;
+exports.MAX_PARTICIPANTS_CAPACITY = 80;
+exports.TEAM_MEMBERS_COUNT = 2;
+exports.ROUND_1_NAME = 'SYNTRACE';
+exports.ROUND_2_NAME = 'DEBUGNOVA';
+exports.MARKS_PER_CORRECT = 1.0;
+exports.PENALTY_PER_WRONG = -1.0;
+exports.UNANSWERED_SCORE = 0.0;
+exports.DEFAULT_ROUND_1_DURATION_MINUTES = 30;
+exports.DEFAULT_ROUND_2_DURATION_MINUTES = 45;
+exports.TIMER_SYNC_INTERVAL_MS = 5000;
+exports.ANTI_CHEAT_WARNING_THRESHOLD = 5;
+exports.COLOR_PALETTE = {
+    PRIMARY_INDIGO: '#34349A',
+    DARK_INDIGO: '#25256F',
+    ORANGE_ACCENT: '#F58220',
+    WARM_CREAM: '#FFF1DC',
+    LIGHT_BLUE: '#E6F4FA',
+    TEAL_ACCENT: '#176B5B',
+    SOFT_LAVENDER: '#E7E6F5',
+    DARK_TEXT: '#171717',
+    WHITE_SURFACE: '#FFFFFF',
+};
+//# sourceMappingURL=index.js.map
