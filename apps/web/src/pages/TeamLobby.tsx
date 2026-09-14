@@ -20,15 +20,22 @@ interface Round1ResultInfo {
 }
 
 export const TeamLobby: React.FC<{ onStartQuiz: (roundId: string) => void }> = ({ onStartQuiz }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [rounds, setRounds] = useState<RoundInfo[]>([]);
   const [round1Result, setRound1Result] = useState<Round1ResultInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [claimWasReset, setClaimWasReset] = useState(false);
 
   const isRound2Competitor = Boolean(user?.competitorId || user?.competitorCode);
 
   const loadRoomInfo = async () => {
     const res = await fetchApi('/rooms/current');
+    if (!res.success && (res.code === 'CLAIM_RESET' || res.error?.includes('claim was reset') || res.error?.includes('reset by the organizer'))) {
+      setClaimWasReset(true);
+      setLoading(false);
+      return;
+    }
+
     if (res.success && res.room) {
       const sorted = [...(res.room.rounds || [])].sort((a, b) => (a.roundNumber || 0) - (b.roundNumber || 0));
       setRounds(sorted);
@@ -251,6 +258,42 @@ export const TeamLobby: React.FC<{ onStartQuiz: (roundId: string) => void }> = (
           <li>The quiz will automatically submit when the server timer reaches 0.</li>
         </ul>
       </div>
+
+      {/* REVOKED CLAIM DIALOG */}
+      {claimWasReset && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.85)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1rem',
+        }}>
+          <div className="card" style={{ maxWidth: '480px', width: '100%', textAlign: 'center', padding: '2.5rem 2rem', background: '#FFFFFF', borderTop: '6px solid #D93838', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
+            <h3 style={{ color: '#D93838', fontSize: '1.4rem', fontWeight: 800, marginBottom: '0.75rem' }}>
+              ROUND 2 CLAIM REVOKED
+            </h3>
+            <p style={{ color: '#171717', fontSize: '1.05rem', fontWeight: 600, marginBottom: '1.75rem', lineHeight: 1.5 }}>
+              Your Round 2 claim was reset by the organizer.
+            </p>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: 700 }}
+              onClick={() => {
+                logout();
+              }}
+            >
+              BACK TO PLAYER SELECTION
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

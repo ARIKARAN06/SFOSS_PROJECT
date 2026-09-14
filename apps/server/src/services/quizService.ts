@@ -261,10 +261,13 @@ export async function saveAnswer({
     throw new Error('Quiz time has expired.');
   }
 
-  // Check disqualification
+  // Check disqualification & active claim
   if (competitorId) {
     const comp = await prisma.roundCompetitor.findUnique({ where: { id: competitorId } });
-    if (comp?.isDisqualified) {
+    if (!comp || !comp.isClaimed) {
+      throw new Error('Your Round 2 claim was reset by the organizer.');
+    }
+    if (comp.isDisqualified) {
       throw new Error('You have been disqualified from this round. Please contact the organizer.');
     }
   } else if (teamId) {
@@ -359,7 +362,10 @@ export async function submitQuiz({
 
   if (competitorId) {
     const comp = await prisma.roundCompetitor.findUnique({ where: { id: competitorId } });
-    if (comp?.isDisqualified) {
+    if (!comp || !comp.isClaimed) {
+      throw new Error('Your Round 2 claim was reset by the organizer.');
+    }
+    if (comp.isDisqualified) {
       throw new Error('You have been disqualified from this round.');
     }
   } else if (teamId) {

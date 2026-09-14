@@ -51,15 +51,64 @@ export async function handleGetQualificationStatus(req: Request, res: Response, 
       orderBy: { teamNumber: 'asc' },
       include: {
         scores: { where: { roundId: round1?.id } },
-        round2Competitors: { where: { roundId: round2.id } },
+        round2Competitors: {
+          where: { roundId: round2.id },
+          include: {
+            submissions: { select: { id: true } },
+            scores: { select: { id: true } },
+            sessions: { select: { isCompleted: true, startedAt: true, submittedAt: true } },
+          },
+        },
       },
     });
 
     const competitors = await prisma.roundCompetitor.findMany({
       where: { roundId: round2.id },
-      include: { originalTeam: true },
+      include: {
+        originalTeam: true,
+        submissions: { select: { id: true } },
+        scores: { select: { id: true } },
+        sessions: { select: { isCompleted: true, startedAt: true, submittedAt: true } },
+      },
       orderBy: { competitorCode: 'asc' },
     });
+
+    const formatCompetitor = (c: any) => {
+      const hasAnswered = (c.submissions?.length || 0) > 0;
+      const hasScores = (c.scores?.length || 0) > 0;
+      const hasSubmitted = (c.sessions || []).some((s: any) => s.isCompleted || s.submittedAt != null);
+      const hasStarted = hasAnswered || hasScores || hasSubmitted;
+
+      let claimStatus = 'AVAILABLE';
+      if (c.isDisqualified) {
+        claimStatus = 'DISQUALIFIED';
+      } else if (hasSubmitted || hasScores) {
+        claimStatus = 'SUBMITTED';
+      } else if (hasStarted) {
+        claimStatus = 'ACTIVE';
+      } else if (c.isClaimed) {
+        claimStatus = 'CLAIMED';
+      }
+
+      return {
+        id: c.id,
+        roundId: c.roundId,
+        originalTeamId: c.originalTeamId,
+        playerName: c.playerName,
+        playerPosition: c.playerPosition,
+        competitorCode: c.competitorCode,
+        isClaimed: c.isClaimed,
+        isDisqualified: c.isDisqualified,
+        disqualifiedReason: c.disqualifiedReason,
+        status: c.status,
+        originalTeam: c.originalTeam,
+        hasStarted,
+        hasAnswered,
+        hasScores,
+        hasSubmitted,
+        claimStatus,
+      };
+    };
 
     return res.json({
       success: true,
@@ -74,9 +123,9 @@ export async function handleGetQualificationStatus(req: Request, res: Response, 
         player2Name: t.player2Name || '',
         round1Score: t.scores[0]?.score ?? null,
         round1Rank: t.scores[0]?.rank ?? null,
-        competitors: t.round2Competitors,
+        competitors: t.round2Competitors.map(formatCompetitor),
       })),
-      competitors,
+      competitors: competitors.map(formatCompetitor),
     });
   } catch (err: any) {
     next(err);
@@ -496,6 +545,106 @@ export async function handleUnqualifyTeam(req: Request, res: Response, next: Nex
     });
 
     return res.json({ success: true, message: 'Team qualification removed successfully.' });
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+/**
+ * Reset a specific Round 2 competitor's claim back to AVAILABLE.
+ * - Safely verifies that the competitor has NOT already started Round 2 (no submissions, no scores, no completed sessions).
+ * - Only resets the specified competitor; teammate is 100% unaffected.
+ * - Clears sessionToken and resets isClaimed to false so old browser cannot answer/submit.
+ * - Preserves player names, competitor codes, and team qualification.
+ */
+export async function handleResetCompetitorClaim(req: Request, res: Response, next: NextFunction) {
+  try {
+    const competitorId = req.params.competitorId || req.body.competitorId;
+
+    if (!competitorId) {
+      return res.status(400).json({ success: false, error: 'competitorId is required.' });
+    }
+
+    const competitor = await prisma.roundCompetitor.findUnique({
+      where: { id: competitorId },
+      include: {
+        originalTeam: true,
+        submissions: true,
+        scores: true,
+        sessions: true,
+      },
+    });
+
+    if (!competitor) {
+      return res.status(404).json({ success: false, error: 'Round 2 competitor not found.' });
+    }
+
+    // Safe state verification:
+    // BLOCKED if competitor has already answered questions, saved answers, submitted, or received scores
+    const hasAnswered = competitor.submissions.length > 0;
+    const hasScores = competitor.scores.length > 0;
+    const hasSubmitted = competitor.sessions.some((s) => s.isCompleted || s.submittedAt != null);
+
+    if (hasAnswered || hasScores || hasSubmitted) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot reset claim because this competitor has already started Round 2.',
+      });
+    }
+
+    // If not claimed at all, acknowledge safely
+    if (!competitor.isClaimed && !competitor.sessionToken) {
+      return res.json({
+        success: true,
+        message: `Competitor slot ${competitor.competitorCode} (${competitor.playerName}) is already AVAILABLE.`,
+        competitor: {
+          id: competitor.id,
+          competitorCode: competitor.competitorCode,
+          playerName: competitor.playerName,
+          playerPosition: competitor.playerPosition,
+          isClaimed: false,
+          status: competitor.status,
+        },
+      });
+    }
+
+    // Transactionally reset only this specific competitor's claim
+    const updated = await prisma.$transaction(async (tx) => {
+      // Remove any uncompleted participant session for this competitor in Round 2
+      await tx.participantSession.deleteMany({
+        where: {
+          competitorId: competitor.id,
+          roundId: competitor.roundId,
+          isCompleted: false,
+        },
+      });
+
+      // Update RoundCompetitor: release claim, wipe session token, revert status to READY
+      return await tx.roundCompetitor.update({
+        where: { id: competitor.id },
+        data: {
+          isClaimed: false,
+          sessionToken: null,
+          status: competitor.playerName ? 'READY' : 'PENDING_NAME',
+        },
+        include: { originalTeam: true },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: `Round 2 claim reset successfully for competitor ${updated.competitorCode} (${updated.playerName}). Slot is now AVAILABLE.`,
+      competitor: {
+        id: updated.id,
+        competitorCode: updated.competitorCode,
+        playerName: updated.playerName,
+        playerPosition: updated.playerPosition,
+        originalTeamNumber: updated.originalTeam.teamNumber,
+        originalTeamName: updated.originalTeam.teamName,
+        isClaimed: false,
+        status: updated.status,
+      },
+    });
   } catch (err: any) {
     next(err);
   }

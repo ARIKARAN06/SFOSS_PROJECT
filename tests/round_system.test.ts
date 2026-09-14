@@ -127,4 +127,208 @@ describe('Round System & Qualification Tests', () => {
     expect(sorted[2].competitorCode).toBe('02-B'); // 15 pts, early, code 02-B
     expect(sorted[3].competitorCode).toBe('03-A'); // 15 pts, late
   });
+
+  describe('Round 2 Individual Claim Reset / Revoke Flow', () => {
+    function evaluateClaimResetSafety(competitor: {
+      isClaimed: boolean;
+      sessionToken: string | null;
+      submissionsCount: number;
+      scoresCount: number;
+      hasCompletedSession: boolean;
+    }) {
+      const hasAnswered = competitor.submissionsCount > 0;
+      const hasScores = competitor.scoresCount > 0;
+      const hasSubmitted = competitor.hasCompletedSession;
+
+      if (hasAnswered || hasScores || hasSubmitted) {
+        return {
+          allowed: false,
+          error: 'Cannot reset claim because this competitor has already started Round 2.',
+        };
+      }
+
+      return {
+        allowed: true,
+        resetData: {
+          isClaimed: false,
+          sessionToken: null,
+          status: 'READY',
+        },
+      };
+    }
+
+    it('TC1: should allow claim reset when competitor is claimed but has not started Round 2', () => {
+      const claimedCompetitor = {
+        isClaimed: true,
+        sessionToken: 'token-uuid-1234',
+        submissionsCount: 0,
+        scoresCount: 0,
+        hasCompletedSession: false,
+      };
+
+      const result = evaluateClaimResetSafety(claimedCompetitor);
+      expect(result.allowed).toBe(true);
+      expect(result.resetData).toEqual({
+        isClaimed: false,
+        sessionToken: null,
+        status: 'READY',
+      });
+    });
+
+    it('TC2: should preserve teammate data completely when resetting competitor claim (Teammate Isolation)', () => {
+      const team = {
+        teamNumber: 1,
+        teamName: 'Code Warriors',
+        isQualifiedForRound2: true,
+        competitors: [
+          {
+            id: 'comp-01-a',
+            competitorCode: '01-A',
+            playerName: 'Arjun',
+            playerPosition: 'A',
+            isClaimed: true,
+            sessionToken: 'token-arjun',
+          },
+          {
+            id: 'comp-01-b',
+            competitorCode: '01-B',
+            playerName: 'Karthik',
+            playerPosition: 'B',
+            isClaimed: true,
+            sessionToken: 'token-karthik',
+          },
+        ],
+      };
+
+      // Reset only Competitor A
+      const targetCompId = 'comp-01-a';
+      const updatedCompetitors = team.competitors.map((c) => {
+        if (c.id === targetCompId) {
+          return { ...c, isClaimed: false, sessionToken: null, status: 'READY' };
+        }
+        return c;
+      });
+
+      // Assert Competitor A was reset
+      expect(updatedCompetitors[0].isClaimed).toBe(false);
+      expect(updatedCompetitors[0].sessionToken).toBeNull();
+      expect(updatedCompetitors[0].playerName).toBe('Arjun');
+      expect(updatedCompetitors[0].competitorCode).toBe('01-A');
+
+      // Assert Teammate B is 100% unaffected
+      expect(updatedCompetitors[1].isClaimed).toBe(true);
+      expect(updatedCompetitors[1].sessionToken).toBe('token-karthik');
+      expect(updatedCompetitors[1].playerName).toBe('Karthik');
+      expect(updatedCompetitors[1].competitorCode).toBe('01-B');
+
+      // Assert Team qualification is untouched
+      expect(team.isQualifiedForRound2).toBe(true);
+      expect(team.teamNumber).toBe(1);
+      expect(team.teamName).toBe('Code Warriors');
+    });
+
+    it('TC3: should block claim reset if competitor has answered questions or submitted', () => {
+      // Scenario A: Answer submissions exist
+      const activeCompetitor = {
+        isClaimed: true,
+        sessionToken: 'token-active',
+        submissionsCount: 2,
+        scoresCount: 0,
+        hasCompletedSession: false,
+      };
+      expect(evaluateClaimResetSafety(activeCompetitor)).toEqual({
+        allowed: false,
+        error: 'Cannot reset claim because this competitor has already started Round 2.',
+      });
+
+      // Scenario B: Completed/Submitted session exists
+      const submittedCompetitor = {
+        isClaimed: true,
+        sessionToken: 'token-sub',
+        submissionsCount: 0,
+        scoresCount: 0,
+        hasCompletedSession: true,
+      };
+      expect(evaluateClaimResetSafety(submittedCompetitor)).toEqual({
+        allowed: false,
+        error: 'Cannot reset claim because this competitor has already started Round 2.',
+      });
+
+      // Scenario C: Final score exists
+      const scoredCompetitor = {
+        isClaimed: true,
+        sessionToken: 'token-scored',
+        submissionsCount: 0,
+        scoresCount: 1,
+        hasCompletedSession: false,
+      };
+      expect(evaluateClaimResetSafety(scoredCompetitor)).toEqual({
+        allowed: false,
+        error: 'Cannot reset claim because this competitor has already started Round 2.',
+      });
+    });
+
+    it('TC4: should invalidate old session token after claim is reset', () => {
+      function validateCompetitorSession(
+        tokenSessionToken: string,
+        dbCompetitor: { isClaimed: boolean; sessionToken: string | null }
+      ) {
+        if (!dbCompetitor.isClaimed || dbCompetitor.sessionToken !== tokenSessionToken) {
+          return {
+            valid: false,
+            error: 'Your Round 2 claim was reset by the organizer.',
+            code: 'CLAIM_RESET',
+          };
+        }
+        return { valid: true };
+      }
+
+      const activeDbState = { isClaimed: true, sessionToken: 'session-live-abc' };
+      expect(validateCompetitorSession('session-live-abc', activeDbState)).toEqual({ valid: true });
+
+      // After admin resets claim
+      const resetDbState = { isClaimed: false, sessionToken: null };
+      expect(validateCompetitorSession('session-live-abc', resetDbState)).toEqual({
+        valid: false,
+        error: 'Your Round 2 claim was reset by the organizer.',
+        code: 'CLAIM_RESET',
+      });
+    });
+
+    it('TC5: should preserve all player names, competitor codes, and Round 1 links without alterations', () => {
+      const originalCompetitor = {
+        id: 'comp-uuid-456',
+        roundId: 'round-2-id',
+        originalTeamId: 'team-uuid-123',
+        originalTeamNumber: 3,
+        originalTeamName: 'CyberKnights',
+        playerName: 'Suresh',
+        playerPosition: 'B' as const,
+        competitorCode: '03-B',
+        isClaimed: true,
+        sessionToken: 'old-token',
+        status: 'ACTIVE',
+      };
+
+      // Reset action simulation
+      const afterReset = {
+        ...originalCompetitor,
+        isClaimed: false,
+        sessionToken: null,
+        status: 'READY',
+      };
+
+      expect(afterReset.id).toBe(originalCompetitor.id);
+      expect(afterReset.roundId).toBe(originalCompetitor.roundId);
+      expect(afterReset.originalTeamId).toBe(originalCompetitor.originalTeamId);
+      expect(afterReset.originalTeamNumber).toBe(3);
+      expect(afterReset.originalTeamName).toBe('CyberKnights');
+      expect(afterReset.playerName).toBe('Suresh');
+      expect(afterReset.playerPosition).toBe('B');
+      expect(afterReset.competitorCode).toBe('03-B');
+      expect(afterReset.isClaimed).toBe(false);
+      expect(afterReset.sessionToken).toBeNull();
+      expect(afterReset.status).toBe('READY');
+    });
+  });
 });

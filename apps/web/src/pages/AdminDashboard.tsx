@@ -63,6 +63,16 @@ export const AdminDashboard: React.FC = () => {
   const [playerDrafts, setPlayerDrafts] = useState<Record<string, { p1: string; p2: string; isQualified: boolean }>>({});
   const [qualifyingAction, setQualifyingAction] = useState(false);
   const [editNamesModal, setEditNamesModal] = useState<{ teamId: string; teamNumber: number; teamName: string; p1: string; p2: string } | null>(null);
+  const [resetClaimModal, setResetClaimModal] = useState<{
+    competitorId: string;
+    competitorCode: string;
+    playerName: string;
+    teamNumber: number;
+    teamName: string;
+    teammateCode?: string;
+    teammateName?: string;
+  } | null>(null);
+  const [resettingClaim, setResettingClaim] = useState(false);
 
   // --------------------------------------------------
   // ANTI-CHEAT FILTER & INDIVIDUAL DQ STATE
@@ -631,6 +641,23 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleResetCompetitorClaim = async () => {
+    if (!resetClaimModal) return;
+    setResettingClaim(true);
+    const res = await fetchApi(`/qualification/competitors/${resetClaimModal.competitorId}/reset-claim`, {
+      method: 'POST',
+    });
+    setResettingClaim(false);
+    if (res.success) {
+      setMessage(res.message || `Round 2 claim reset successfully for ${resetClaimModal.competitorCode} (${resetClaimModal.playerName}). Slot is now AVAILABLE.`);
+      setResetClaimModal(null);
+      loadQualification();
+    } else {
+      setErrorMsg(res.error || 'Failed to reset competitor claim.');
+      setResetClaimModal(null);
+    }
+  };
+
   // --------------------------------------------------
   // HANDLERS: RESULTS & ANSWER PAPER
   // --------------------------------------------------
@@ -714,6 +741,53 @@ export const AdminDashboard: React.FC = () => {
   const qualifiedTeamsCount = qualificationData.teams.filter((t) => t.isQualifiedForRound2).length;
   const competitorSlotsCount = qualificationData.competitors.length;
   const claimedCompetitorsCount = qualificationData.competitors.filter((c) => c.isClaimed).length;
+
+  const renderClaimStatusBadge = (comp: any) => {
+    if (!comp) return <span style={{ color: '#94A3B8' }}>—</span>;
+    const status = comp.claimStatus || (comp.isDisqualified ? 'DISQUALIFIED' : comp.hasSubmitted ? 'SUBMITTED' : comp.hasStarted ? 'ACTIVE' : comp.isClaimed ? 'CLAIMED' : 'AVAILABLE');
+
+    let bg = '#F1F5F9';
+    let color = '#475569';
+    let border = '#CBD5E1';
+
+    if (status === 'AVAILABLE') {
+      bg = '#E6F4EA';
+      color = '#137333';
+      border = '#CEEAD6';
+    } else if (status === 'CLAIMED') {
+      bg = '#FEF7E0';
+      color = '#B06000';
+      border = '#FEEFC3';
+    } else if (status === 'ACTIVE') {
+      bg = '#E8F0FE';
+      color = '#1A73E8';
+      border = '#D2E3FC';
+    } else if (status === 'SUBMITTED') {
+      bg = '#F3E8FD';
+      color = '#7627BB';
+      border = '#E9D5FF';
+    } else if (status === 'DISQUALIFIED') {
+      bg = '#FCE8E6';
+      color = '#C5221F';
+      border = '#FAD2CF';
+    }
+
+    return (
+      <span style={{
+        display: 'inline-block',
+        padding: '0.15rem 0.45rem',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: 700,
+        letterSpacing: '0.5px',
+        background: bg,
+        color: color,
+        border: `1px solid ${border}`,
+      }}>
+        {status}
+      </span>
+    );
+  };
 
   // Anti-cheat logs filtered by selected view
   const filteredLogs = antiCheatLogs.filter((log) => {
@@ -1302,9 +1376,15 @@ export const AdminDashboard: React.FC = () => {
                       </td>
                       <td style={{ padding: '0.75rem 1rem' }}>
                         {isQualified ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.75rem' }}>
-                            <span>A: {p1Comp?.isClaimed ? <strong style={{ color: '#176B5B' }}>CLAIMED</strong> : <span style={{ color: '#64748B' }}>Unclaimed</span>}</span>
-                            <span>B: {p2Comp?.isClaimed ? <strong style={{ color: '#176B5B' }}>CLAIMED</strong> : <span style={{ color: '#64748B' }}>Unclaimed</span>}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.75rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <strong style={{ fontFamily: 'monospace', color: '#34349A' }}>A:</strong>
+                              {renderClaimStatusBadge(p1Comp)}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <strong style={{ fontFamily: 'monospace', color: '#34349A' }}>B:</strong>
+                              {renderClaimStatusBadge(p2Comp)}
+                            </div>
                           </div>
                         ) : (
                           <span style={{ color: '#94A3B8' }}>—</span>
@@ -1312,19 +1392,71 @@ export const AdminDashboard: React.FC = () => {
                       </td>
                       <td style={{ padding: '0.75rem 1rem' }}>
                         {isQualified && (
-                          <button
-                            className="btn btn-outline"
-                            style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                            onClick={() => setEditNamesModal({
-                              teamId: t.id,
-                              teamNumber: t.teamNumber,
-                              teamName: t.teamName,
-                              p1: p1Comp?.playerName || t.player1Name || '',
-                              p2: p2Comp?.playerName || t.player2Name || '',
-                            })}
-                          >
-                            EDIT PLAYER NAMES
-                          </button>
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            <button
+                              className="btn btn-outline"
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                              onClick={() => setEditNamesModal({
+                                teamId: t.id,
+                                teamNumber: t.teamNumber,
+                                teamName: t.teamName,
+                                p1: p1Comp?.playerName || t.player1Name || '',
+                                p2: p2Comp?.playerName || t.player2Name || '',
+                              })}
+                            >
+                              EDIT NAMES
+                            </button>
+                            {p1Comp?.isClaimed && (
+                              <button
+                                className="btn btn-outline"
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  fontSize: '0.75rem',
+                                  borderColor: p1Comp.hasStarted ? '#CBD5E1' : '#D93838',
+                                  color: p1Comp.hasStarted ? '#94A3B8' : '#D93838',
+                                  background: '#FFF',
+                                }}
+                                disabled={p1Comp.hasStarted}
+                                title={p1Comp.hasStarted ? 'Cannot reset claim because this competitor has already started Round 2.' : 'Reset claim for Player A (restore to AVAILABLE)'}
+                                onClick={() => setResetClaimModal({
+                                  competitorId: p1Comp.id,
+                                  competitorCode: p1Comp.competitorCode,
+                                  playerName: p1Comp.playerName,
+                                  teamNumber: t.teamNumber,
+                                  teamName: t.teamName,
+                                  teammateCode: p2Comp?.competitorCode,
+                                  teammateName: p2Comp?.playerName,
+                                })}
+                              >
+                                RESET A
+                              </button>
+                            )}
+                            {p2Comp?.isClaimed && (
+                              <button
+                                className="btn btn-outline"
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  fontSize: '0.75rem',
+                                  borderColor: p2Comp.hasStarted ? '#CBD5E1' : '#D93838',
+                                  color: p2Comp.hasStarted ? '#94A3B8' : '#D93838',
+                                  background: '#FFF',
+                                }}
+                                disabled={p2Comp.hasStarted}
+                                title={p2Comp.hasStarted ? 'Cannot reset claim because this competitor has already started Round 2.' : 'Reset claim for Player B (restore to AVAILABLE)'}
+                                onClick={() => setResetClaimModal({
+                                  competitorId: p2Comp.id,
+                                  competitorCode: p2Comp.competitorCode,
+                                  playerName: p2Comp.playerName,
+                                  teamNumber: t.teamNumber,
+                                  teamName: t.teamName,
+                                  teammateCode: p1Comp?.competitorCode,
+                                  teammateName: p1Comp?.playerName,
+                                })}
+                              >
+                                RESET B
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -1333,6 +1465,87 @@ export const AdminDashboard: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {/* ROUND 2 INDIVIDUAL COMPETITOR SLOTS DIRECT MANAGER */}
+          {qualificationData.competitors.length > 0 && (
+            <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '2px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ color: '#25256F', fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>
+                  👤 Round 2 Individual Competitor Slots ({qualificationData.competitors.length})
+                </h3>
+                <span style={{ fontSize: '0.85rem', color: '#64748B' }}>
+                  {claimedCompetitorsCount} of {competitorSlotsCount} slots claimed
+                </span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                  <thead>
+                    <tr style={{ background: '#34349A', color: '#FFFFFF', textAlign: 'left', fontWeight: 700 }}>
+                      <th style={{ padding: '0.6rem 1rem' }}>CODE</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>PLAYER NAME</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>ORIGINAL TEAM</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>CLAIM STATUS</th>
+                      <th style={{ padding: '0.6rem 1rem' }}>ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {qualificationData.competitors.map((comp: any, cIdx: number) => {
+                      const partner = qualificationData.competitors.find(
+                        (o: any) => o.originalTeamId === comp.originalTeamId && o.id !== comp.id
+                      );
+                      return (
+                        <tr key={comp.id} style={{ borderBottom: '1px solid #E2E8F0', background: cIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }}>
+                          <td style={{ padding: '0.6rem 1rem', fontFamily: 'monospace', fontWeight: 800, color: '#34349A', fontSize: '0.95rem' }}>
+                            [{comp.competitorCode}]
+                          </td>
+                          <td style={{ padding: '0.6rem 1rem', fontWeight: 700, color: '#171717' }}>
+                            {comp.playerName}
+                          </td>
+                          <td style={{ padding: '0.6rem 1rem', color: '#475569' }}>
+                            Team {String(comp.originalTeam?.teamNumber || 0).padStart(2, '0')} ({comp.originalTeam?.teamName || `Team ${comp.originalTeam?.teamNumber}`})
+                          </td>
+                          <td style={{ padding: '0.6rem 1rem' }}>
+                            {renderClaimStatusBadge(comp)}
+                          </td>
+                          <td style={{ padding: '0.6rem 1rem' }}>
+                            {comp.isClaimed ? (
+                              <button
+                                className="btn btn-outline"
+                                style={{
+                                  padding: '0.25rem 0.6rem',
+                                  fontSize: '0.75rem',
+                                  borderColor: comp.hasStarted ? '#CBD5E1' : '#D93838',
+                                  color: comp.hasStarted ? '#94A3B8' : '#D93838',
+                                  background: '#FFF',
+                                }}
+                                disabled={comp.hasStarted}
+                                title={comp.hasStarted ? 'Cannot reset claim because this competitor has already started Round 2.' : 'Release claim on this slot and return to AVAILABLE'}
+                                onClick={() => setResetClaimModal({
+                                  competitorId: comp.id,
+                                  competitorCode: comp.competitorCode,
+                                  playerName: comp.playerName,
+                                  teamNumber: comp.originalTeam?.teamNumber || 0,
+                                  teamName: comp.originalTeam?.teamName || '',
+                                  teammateCode: partner?.competitorCode,
+                                  teammateName: partner?.playerName,
+                                })}
+                              >
+                                RESET CLAIM
+                              </button>
+                            ) : (
+                              <span style={{ color: '#16A34A', fontSize: '0.75rem', fontWeight: 600 }}>
+                                Available
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2066,6 +2279,58 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET ROUND 2 CLAIM CONFIRMATION MODAL */}
+      {resetClaimModal && (
+        <div className="modal-overlay animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget && !resettingClaim) setResetClaimModal(null); }}>
+          <div className="modal-card" style={{ maxWidth: '520px', borderTop: '6px solid #D93838' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '1.8rem' }}>⚠️</span>
+              <h3 style={{ color: '#25256F', fontSize: '1.3rem', fontWeight: 800, margin: 0 }}>
+                RESET ROUND 2 CLAIM?
+              </h3>
+            </div>
+            <div style={{ background: '#FFFDF9', border: '1px solid #FFE4C4', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem' }}>
+              <div style={{ marginBottom: '0.4rem' }}>
+                <span style={{ color: '#64748B', fontSize: '0.85rem' }}>Competitor Slot: </span>
+                <strong style={{ fontFamily: 'monospace', color: '#34349A', fontSize: '1rem' }}>[{resetClaimModal.competitorCode}]</strong>{' '}
+                <strong style={{ color: '#171717', fontSize: '1rem' }}>{resetClaimModal.playerName}</strong>
+              </div>
+              <div style={{ marginBottom: '0.4rem' }}>
+                <span style={{ color: '#64748B', fontSize: '0.85rem' }}>Original Team: </span>
+                <strong style={{ color: '#171717' }}>Team {String(resetClaimModal.teamNumber).padStart(2, '0')} ({resetClaimModal.teamName})</strong>
+              </div>
+              {resetClaimModal.teammateCode && (
+                <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #E2E8F0', color: '#176B5B', fontSize: '0.85rem' }}>
+                  ✅ Teammate <strong>[{resetClaimModal.teammateCode}] {resetClaimModal.teammateName}</strong> and team qualification will remain completely unaffected.
+                </div>
+              )}
+            </div>
+            <p style={{ color: '#475569', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+              This action will revoke the device claim on this slot and restore it to <strong>AVAILABLE</strong>.
+              The old browser session will be immediately disconnected. The participant can re-select the correct player identity.
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-outline"
+                disabled={resettingClaim}
+                onClick={() => setResetClaimModal(null)}
+                style={{ padding: '0.5rem 1rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#D93838', borderColor: '#D93838', padding: '0.5rem 1.25rem' }}
+                disabled={resettingClaim}
+                onClick={handleResetCompetitorClaim}
+              >
+                {resettingClaim ? 'RESETTING...' : 'Confirm Reset Claim'}
+              </button>
             </div>
           </div>
         </div>

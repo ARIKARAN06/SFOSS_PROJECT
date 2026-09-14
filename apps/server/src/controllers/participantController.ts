@@ -416,7 +416,11 @@ export async function handleRestoreSession(req: Request, res: Response, next: Ne
       });
     }
 
-    return res.status(401).json({ success: false, error: 'Session token invalid or expired.' });
+    return res.status(401).json({
+      success: false,
+      error: 'Session token invalid or expired. Your claim may have been reset by the organizer.',
+      code: 'CLAIM_RESET',
+    });
   } catch (err: any) {
     next(err);
   }

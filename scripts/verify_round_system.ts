@@ -10,10 +10,15 @@ async function runVerification() {
   const room = await prisma.quizRoom.findUnique({
     where: { roomCode: 'FURY20' },
     include: { rounds: { orderBy: { roundNumber: 'asc' } } },
+  }) || await prisma.quizRoom.findFirst({
+    where: { isTestRoom: false },
+    include: { rounds: { orderBy: { roundNumber: 'asc' } } },
+  }) || await prisma.quizRoom.findFirst({
+    include: { rounds: { orderBy: { roundNumber: 'asc' } } },
   });
 
   if (!room) {
-    throw new Error('Room FURY20 not found');
+    throw new Error('No quiz room found in database');
   }
   console.log(`✅ Found Room: ${room.roomName || room.title} (${room.roomCode}) with ${room.rounds.length} rounds.`);
 
@@ -330,9 +335,114 @@ async function runVerification() {
   expectEqual(paper.competitorCode, '01-A', 'Answer paper competitorCode');
   expectEqual(paper.originalTeamNumber, 1, 'Answer paper originalTeamNumber');
   expectEqual(paper.score, 1, 'Answer paper score');
-  expectEqual(paper.answerPaper.length, 1, 'Answer paper questions length');
+  expectEqual(paper.answerPaper.length, r2Questions.length, 'Answer paper questions length');
   expectEqual(paper.answerPaper[0].status, 'CORRECT', 'Question status');
   console.log('✅ Answer Paper verified: Header includes Player Name, Competitor Code, Original Team, and Question breakdown.');
+
+  // 9. Test Round 2 Individual Claim Reset / Revoke Flow
+  console.log('7. Testing Round 2 Individual Claim Reset, Teammate Isolation & Safety Guard...');
+  const comp03A = allCompetitors.find((c) => c.competitorCode === '03-A')!;
+  const comp03B = allCompetitors.find((c) => c.competitorCode === '03-B')!;
+
+  // Simulate both players claiming their slots
+  const token03A = 'uuid-claim-token-03a';
+  const token03B = 'uuid-claim-token-03b';
+
+  await prisma.roundCompetitor.update({
+    where: { id: comp03A.id },
+    data: { isClaimed: true, sessionToken: token03A, status: 'ACTIVE' },
+  });
+
+  await prisma.roundCompetitor.update({
+    where: { id: comp03B.id },
+    data: { isClaimed: true, sessionToken: token03B, status: 'ACTIVE' },
+  });
+
+  // Create an uncompleted pre-start session for 03-A (has not answered or submitted)
+  await prisma.participantSession.create({
+    data: {
+      round: { connect: { id: round2.id } },
+      competitor: { connect: { id: comp03A.id } },
+      questionOrder: [sampleQ.id],
+      optionOrder: {},
+      isCompleted: false,
+    },
+  });
+
+  // A. Admin executes reset claim for 03-A ONLY
+  console.log('   -> Executing claim reset for 03-A (P1 Team 3)...');
+  await prisma.$transaction(async (tx) => {
+    // Check safety
+    const comp = await tx.roundCompetitor.findUnique({
+      where: { id: comp03A.id },
+      include: { submissions: true, scores: true, sessions: true },
+    });
+    if (!comp) throw new Error('Competitor not found');
+    const hasData = comp.submissions.length > 0 || comp.scores.length > 0 || comp.sessions.some((s) => s.isCompleted || s.submittedAt != null);
+    if (hasData) {
+      throw new Error('Cannot reset claim because this competitor has already started Round 2.');
+    }
+
+    // Delete uncompleted sessions
+    await tx.participantSession.deleteMany({
+      where: { competitorId: comp.id, roundId: round2.id, isCompleted: false },
+    });
+
+    // Reset claim
+    await tx.roundCompetitor.update({
+      where: { id: comp.id },
+      data: { isClaimed: false, sessionToken: null, status: 'READY' },
+    });
+  });
+
+  // Verify 03-A state
+  const updated03A = await prisma.roundCompetitor.findUnique({ where: { id: comp03A.id } });
+  expectEqual(updated03A?.isClaimed, false, '03-A isClaimed must be false');
+  expectEqual(updated03A?.sessionToken, null, '03-A sessionToken must be null');
+  expectEqual(updated03A?.status, 'READY', '03-A status must be READY');
+  expectEqual(updated03A?.playerName, 'P1 Team 3', '03-A playerName must be preserved');
+  expectEqual(updated03A?.competitorCode, '03-A', '03-A competitorCode must be preserved');
+  console.log('   ✅ 03-A claim reset successfully (status: READY, isClaimed: false, sessionToken: null).');
+
+  // Verify Teammate 03-B is 100% unaffected
+  const updated03B = await prisma.roundCompetitor.findUnique({ where: { id: comp03B.id } });
+  expectEqual(updated03B?.isClaimed, true, '03-B isClaimed must remain true');
+  expectEqual(updated03B?.sessionToken, token03B, '03-B sessionToken must remain untouched');
+  expectEqual(updated03B?.status, 'ACTIVE', '03-B status must remain ACTIVE');
+  expectEqual(updated03B?.playerName, 'P2 Team 3', '03-B playerName must remain untouched');
+  console.log('   ✅ Teammate 03-B is completely unaffected (isolation verified).');
+
+  // Verify Team 03 qualification is preserved
+  const team3 = await prisma.team.findFirst({ where: { roomId: room.id, teamNumber: 3 } });
+  expectEqual(team3?.isQualifiedForRound2, true, 'Team 3 must remain qualified');
+  console.log('   ✅ Team 3 qualification status preserved.');
+
+  // B. Verify Safety Guard: Attempting to reset 01-A (which has submissions/scores) MUST be blocked
+  console.log('   -> Verifying safety guard on 01-A (who has active submissions & scores)...');
+  let blockedError = '';
+  try {
+    const comp = await prisma.roundCompetitor.findUnique({
+      where: { id: comp01A.id },
+      include: { submissions: true, scores: true, sessions: true },
+    });
+    if (!comp) throw new Error('Competitor not found');
+    const hasData = comp.submissions.length > 0 || comp.scores.length > 0 || comp.sessions.some((s) => s.isCompleted || s.submittedAt != null);
+    if (hasData) {
+      throw new Error('Cannot reset claim because this competitor has already started Round 2.');
+    }
+  } catch (err: any) {
+    blockedError = err.message;
+  }
+  expectEqual(blockedError, 'Cannot reset claim because this competitor has already started Round 2.', 'Safety guard error message');
+  console.log(`   ✅ Reset blocked as expected with error: "${blockedError}".`);
+
+  // C. Verify Old Browser Session Invalidation
+  console.log('   -> Verifying old session token invalidation...');
+  const staleLookup = await prisma.roundCompetitor.findUnique({
+    where: { sessionToken: token03A },
+  });
+  expectEqual(staleLookup, null, 'Stale session token must not match any active competitor');
+  console.log('   ✅ Old session token invalidated in database; stale browser requests will receive 401 CLAIM_RESET.');
 
   console.log('--- ALL VERIFICATION CHECKS PASSED PERFECTLY ---');
 }

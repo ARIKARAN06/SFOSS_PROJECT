@@ -20,7 +20,7 @@ export const QuizView: React.FC<{
   roundId: string;
   onSubmitted: () => void;
 }> = ({ roundId, onSubmitted }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [savedAnswers, setSavedAnswers] = useState<Record<string, string>>({});
@@ -29,6 +29,7 @@ export const QuizView: React.FC<{
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claimWasReset, setClaimWasReset] = useState(false);
 
   // Pre-start & Disqualification state
   const [isPreStart, setIsPreStart] = useState(false);
@@ -42,6 +43,12 @@ export const QuizView: React.FC<{
   const loadQuizSession = async () => {
     if (isDisqualified) return;
     const res = await fetchApi(`/quiz/session/${roundId}`);
+    if (!res.success && (res.code === 'CLAIM_RESET' || res.error?.includes('claim was reset') || res.error?.includes('reset by the organizer'))) {
+      setClaimWasReset(true);
+      setLoading(false);
+      return;
+    }
+
     if (res.success) {
       if (res.isDisqualified) {
         setIsDisqualified(true);
@@ -121,6 +128,10 @@ export const QuizView: React.FC<{
     const poll = setInterval(async () => {
       try {
         const res = await fetchApi(`/quiz/session/${roundId}`);
+        if (!res.success && (res.code === 'CLAIM_RESET' || res.error?.includes('claim was reset') || res.error?.includes('reset by the organizer'))) {
+          setClaimWasReset(true);
+          return;
+        }
         if (res.isDisqualified || (!res.success && res.error?.toLowerCase().includes('disqualified'))) {
           setIsDisqualified(true);
           setDisqualifiedReason(res.disqualificationReason || res.reason || res.error || null);
@@ -163,6 +174,11 @@ export const QuizView: React.FC<{
       }),
     });
 
+    if (!res.success && (res.code === 'CLAIM_RESET' || res.error?.includes('claim was reset') || res.error?.includes('reset by the organizer'))) {
+      setClaimWasReset(true);
+      return;
+    }
+
     if (!res.success && (res.isDisqualified || res.error?.toLowerCase().includes('disqualified'))) {
       setIsDisqualified(true);
       setDisqualifiedReason(res.disqualificationReason || res.reason || res.error || 'Disqualified from this round');
@@ -183,6 +199,10 @@ export const QuizView: React.FC<{
     if (res.success) {
       onSubmitted();
     } else {
+      if (res.code === 'CLAIM_RESET' || res.error?.includes('claim was reset') || res.error?.includes('reset by the organizer')) {
+        setClaimWasReset(true);
+        return;
+      }
       if (res.isDisqualified || res.error?.toLowerCase().includes('disqualified')) {
         setIsDisqualified(true);
         setDisqualifiedReason(res.disqualificationReason || res.reason || res.error || 'Disqualified from this round');
@@ -513,6 +533,42 @@ export const QuizView: React.FC<{
                 {submitting ? 'Submitting...' : 'Yes, Submit Final'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* REVOKED CLAIM DIALOG */}
+      {claimWasReset && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.85)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1rem',
+        }}>
+          <div className="card" style={{ maxWidth: '480px', width: '100%', textAlign: 'center', padding: '2.5rem 2rem', background: '#FFFFFF', borderTop: '6px solid #D93838', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
+            <h3 style={{ color: '#D93838', fontSize: '1.4rem', fontWeight: 800, marginBottom: '0.75rem' }}>
+              ROUND 2 CLAIM REVOKED
+            </h3>
+            <p style={{ color: '#171717', fontSize: '1.05rem', fontWeight: 600, marginBottom: '1.75rem', lineHeight: 1.5 }}>
+              Your Round 2 claim was reset by the organizer.
+            </p>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: 700 }}
+              onClick={() => {
+                logout();
+              }}
+            >
+              BACK TO PLAYER SELECTION
+            </button>
           </div>
         </div>
       )}
