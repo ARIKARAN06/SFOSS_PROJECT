@@ -24,7 +24,12 @@ export async function handleGetOrCreateRoom(req: Request, res: Response, next: N
       where: { id: room.id },
       include: { rounds: { orderBy: { roundNumber: 'asc' } } },
     });
-    return res.json({ success: true, room: refreshed || room });
+    return res.json({
+      success: true,
+      room: refreshed || room,
+      serverTime: new Date().toISOString(),
+      serverTimestamp: Date.now(),
+    });
   } catch (err: any) {
     next(err);
   }
@@ -56,7 +61,12 @@ export async function handleGetRoomByCode(req: Request, res: Response, next: Nex
       include: { rounds: { orderBy: { roundNumber: 'asc' } } },
     });
 
-    return res.json({ success: true, room: refreshed || room });
+    return res.json({
+      success: true,
+      room: refreshed || room,
+      serverTime: new Date().toISOString(),
+      serverTimestamp: Date.now(),
+    });
   } catch (err: any) {
     next(err);
   }
@@ -100,7 +110,12 @@ export async function handleGetCurrentRoom(req: Request, res: Response, next: Ne
       include: { rounds: { orderBy: { roundNumber: 'asc' } } },
     });
 
-    return res.json({ success: true, room: refreshed || room });
+    return res.json({
+      success: true,
+      room: refreshed || room,
+      serverTime: new Date().toISOString(),
+      serverTimestamp: Date.now(),
+    });
   } catch (err: any) {
     next(err);
   }
@@ -155,7 +170,12 @@ export async function handleStartRound(req: Request, res: Response, next: NextFu
     const { roundId } = req.params;
     const { durationMinutes, preStartDurationMinutes } = req.body;
     const round = await startRound(roundId, durationMinutes, preStartDurationMinutes);
-    return res.json({ success: true, round });
+    return res.json({
+      success: true,
+      round,
+      serverTime: new Date().toISOString(),
+      serverTimestamp: Date.now(),
+    });
   } catch (err: any) {
     next(err);
   }

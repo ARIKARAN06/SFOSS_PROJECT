@@ -127,3 +127,65 @@ export async function handleGetRoundQuestions(req: Request, res: Response, next:
     next(err);
   }
 }
+
+// ----------------------------------------------------
+// EXCEL QUESTION IMPORT CONTROLLERS
+// ----------------------------------------------------
+import {
+  generateExcelTemplate,
+  parseAndValidateExcel,
+  importExcelQuestions,
+} from '../services/excelImportService';
+
+export async function handleDownloadExcelTemplate(req: Request, res: Response, next: NextFunction) {
+  try {
+    const buffer = generateExcelTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="FOSSFURY26_Question_Template.xlsx"');
+    return res.send(buffer);
+  } catch (err: any) {
+    next(err);
+  }
+}
+
+export async function handlePreviewExcelQuestions(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No Excel file uploaded.' });
+    }
+    const { roundId } = req.body;
+    if (!roundId) {
+      return res.status(400).json({ success: false, error: 'Destination roundId is required.' });
+    }
+
+    const preview = await parseAndValidateExcel(
+      req.file.buffer,
+      req.file.originalname,
+      roundId
+    );
+
+    return res.json({ success: true, preview });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to preview Excel file.' });
+  }
+}
+
+export async function handleImportExcelQuestions(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { roundId, questions } = req.body;
+    if (!roundId || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ success: false, error: 'roundId and questions array are required.' });
+    }
+
+    const result = await importExcelQuestions(roundId, questions);
+    return res.json({
+      success: true,
+      message: `${result.count} questions imported successfully into Round ${result.roundNumber} — ${result.roundName}.`,
+      count: result.count,
+      roundName: result.roundName,
+      roundNumber: result.roundNumber,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to import questions.' });
+  }
+}

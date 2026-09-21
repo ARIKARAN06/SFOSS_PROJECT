@@ -56,6 +56,19 @@ export const AdminDashboard: React.FC = () => {
   const [savingQ, setSavingQ] = useState(false);
 
   // --------------------------------------------------
+  // EXCEL QUESTION IMPORT STATE
+  // --------------------------------------------------
+  const [builderMode, setBuilderMode] = useState<'manual' | 'excel'>('manual');
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelDestinationRoundId, setExcelDestinationRoundId] = useState<string>('');
+  const [excelParsing, setExcelParsing] = useState(false);
+  const [excelImporting, setExcelImporting] = useState(false);
+  const [excelPreview, setExcelPreview] = useState<any | null>(null);
+  const [excludeDuplicates, setExcludeDuplicates] = useState(true);
+  const [showImportConfirmModal, setShowImportConfirmModal] = useState(false);
+  const [serverOffsetMs, setServerOffsetMs] = useState<number>(0);
+
+  // --------------------------------------------------
   // ROUND 2 QUALIFICATION STATE
   // --------------------------------------------------
   const [qualificationData, setQualificationData] = useState<{ round1Id?: string; round2Id?: string; teams: any[]; competitors: any[] }>({ teams: [], competitors: [] });
@@ -105,7 +118,8 @@ export const AdminDashboard: React.FC = () => {
 
   const formatCountdown = (scheduledTime: string | null) => {
     if (!scheduledTime) return '00:00';
-    const diffSec = Math.max(0, Math.floor((new Date(scheduledTime).getTime() - now) / 1000));
+    const serverNow = now + serverOffsetMs;
+    const diffSec = Math.max(0, Math.floor((new Date(scheduledTime).getTime() - serverNow) / 1000));
     const mins = Math.floor(diffSec / 60);
     const secs = diffSec % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
@@ -453,6 +467,126 @@ export const AdminDashboard: React.FC = () => {
       method: 'POST',
       body: JSON.stringify({ orderedQuestionIds: orderedIds }),
     });
+  };
+
+  // --------------------------------------------------
+  // HANDLERS: EXCEL QUESTION IMPORT
+  // --------------------------------------------------
+  const handleDownloadTemplate = async () => {
+    try {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const response = await fetch('/api/questions/excel-template', {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!response.ok) throw new Error('Failed to download Excel template.');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'FOSSFURY26_Question_Template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to download Excel template.');
+    }
+  };
+
+  const handlePreviewExcel = async () => {
+    if (!excelFile) {
+      setErrorMsg('Please select an Excel file (.xlsx or .xls) first.');
+      return;
+    }
+    const targetRoundId = excelDestinationRoundId || selectedRoundId;
+    if (!targetRoundId) {
+      setErrorMsg('Please select a destination round.');
+      return;
+    }
+
+    setExcelParsing(true);
+    setErrorMsg(null);
+    setMessage(null);
+
+    const formData = new FormData();
+    formData.append('file', excelFile);
+    formData.append('roundId', targetRoundId);
+
+    try {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const response = await fetch('/api/questions/excel-preview', {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      const data = await response.json();
+      if (data.success && data.preview) {
+        setExcelPreview(data.preview);
+      } else {
+        setErrorMsg(data.error || 'Failed to parse Excel file.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error uploading file.');
+    } finally {
+      setExcelParsing(false);
+    }
+  };
+
+  const handleExecuteImport = async () => {
+    if (!excelPreview) return;
+    const targetRoundId = excelDestinationRoundId || selectedRoundId;
+    setShowImportConfirmModal(false);
+    setExcelImporting(true);
+    setErrorMsg(null);
+    setMessage(null);
+
+    const itemsToImport = excelPreview.rows
+      .filter((row: any) => {
+        if (row.status === 'INVALID') return false;
+        if (excludeDuplicates && row.status === 'DUPLICATE') return false;
+        return true;
+      })
+      .map((row: any) => ({
+        questionText: row.questionText,
+        codeSnippet: row.codeSnippet,
+        optionA: row.optionA,
+        optionB: row.optionB,
+        optionC: row.optionC,
+        optionD: row.optionD,
+        answer: row.answer as 'A' | 'B' | 'C' | 'D',
+      }));
+
+    if (itemsToImport.length === 0) {
+      setErrorMsg('No valid questions to import.');
+      setExcelImporting(false);
+      return;
+    }
+
+    const res = await fetchApi('/questions/excel-import', {
+      method: 'POST',
+      body: JSON.stringify({
+        roundId: targetRoundId,
+        questions: itemsToImport,
+      }),
+    });
+
+    setExcelImporting(false);
+
+    if (res.success) {
+      setMessage(`✅ ${res.message || `${res.count} questions imported successfully!`}`);
+      setExcelPreview(null);
+      setExcelFile(null);
+      setSelectedRoundId(targetRoundId);
+      setBuilderMode('manual');
+      loadRoundQuestions(targetRoundId);
+      loadData();
+    } else {
+      setErrorMsg(res.error || 'Failed to import questions.');
+    }
   };
 
   // --------------------------------------------------
@@ -1046,20 +1180,41 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: MANUAL QUESTION BUILDER */}
+      {/* TAB 2: MANUAL QUESTION BUILDER & EXCEL IMPORT */}
       {activeTab === 'builder' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-          {/* Left Column: Question Form Editor */}
-          <div className="card card-cream animate-fade-in" style={{ borderLeft: '6px solid #F58220', height: 'fit-content' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h2 style={{ color: '#25256F', fontSize: '1.3rem' }}>
-                {editingQuestionId ? 'Edit Question' : 'Add New Question'}
-              </h2>
+        <div>
+          {/* Action switcher: [ + ADD QUESTION MANUALLY ] [ IMPORT QUESTIONS FROM EXCEL ] */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem', background: '#FFFFFF', padding: '1rem 1.5rem', borderRadius: '8px', boxShadow: 'var(--shadow)' }}>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button
+                className={`btn ${builderMode === 'manual' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontWeight: 800, letterSpacing: '0.5px' }}
+                onClick={() => setBuilderMode('manual')}
+              >
+                + ADD QUESTION MANUALLY
+              </button>
+              <button
+                className={`btn ${builderMode === 'excel' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontWeight: 800, letterSpacing: '0.5px' }}
+                onClick={() => {
+                  setBuilderMode('excel');
+                  setExcelDestinationRoundId((prev) => prev || selectedRoundId);
+                }}
+              >
+                📊 IMPORT QUESTIONS FROM EXCEL
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <label style={{ fontWeight: 700, color: '#25256F', fontSize: '0.9rem' }}>Active Round:</label>
               <select
                 className="form-control"
-                style={{ width: '180px', padding: '0.4rem 0.6rem' }}
+                style={{ width: '220px', padding: '0.45rem 0.75rem' }}
                 value={selectedRoundId}
-                onChange={(e) => setSelectedRoundId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedRoundId(e.target.value);
+                  setExcelDestinationRoundId(e.target.value);
+                }}
               >
                 {[...(room?.rounds || [])].sort((a: any, b: any) => (a.roundNumber || 0) - (b.roundNumber || 0)).map((r: any) => (
                   <option key={r.id} value={r.id}>
@@ -1068,123 +1223,388 @@ export const AdminDashboard: React.FC = () => {
                 ))}
               </select>
             </div>
-
-            <div className="form-group">
-              <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Question Text</label>
-              <textarea
-                className="form-control"
-                rows={3}
-                placeholder="What is the output of the following code?"
-                value={qText}
-                onChange={(e) => setQText(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Code Block (Optional)</label>
-              <textarea
-                className="form-control"
-                rows={3}
-                style={{ fontFamily: 'monospace', fontSize: '0.85rem', background: '#1E1E38', color: '#82AAFF' }}
-                placeholder="int x = 10; printf(&quot;%d&quot;, x);"
-                value={qCode}
-                onChange={(e) => setQCode(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-              <div className="form-group">
-                <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option A</label>
-                <input type="text" className="form-control" value={qOptA} onChange={(e) => setQOptA(e.target.value)} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option B</label>
-                <input type="text" className="form-control" value={qOptB} onChange={(e) => setQOptB(e.target.value)} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option C</label>
-                <input type="text" className="form-control" value={qOptC} onChange={(e) => setQOptC(e.target.value)} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option D</label>
-                <input type="text" className="form-control" value={qOptD} onChange={(e) => setQOptD(e.target.value)} required />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" style={{ color: '#F58220', fontWeight: 800 }}>Correct Answer Choice</label>
-              <div style={{ display: 'flex', gap: '1.5rem', background: '#FFFFFF', padding: '0.75rem', borderRadius: '6px', border: '1px solid #CBD5E1' }}>
-                {(['A', 'B', 'C', 'D'] as const).map((letter) => (
-                  <label key={letter} style={{ cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#171717' }}>
-                    <input
-                      type="radio"
-                      name="correctChoice"
-                      checked={qCorrect === letter}
-                      onChange={() => setQCorrect(letter)}
-                    />
-                    Option {letter}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Explanation (Optional)</label>
-              <input type="text" className="form-control" placeholder="Brief explanation for correct answer" value={qExp} onChange={(e) => setQExp(e.target.value)} />
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleSaveQuestion(false)} disabled={savingQ}>
-                SAVE QUESTION
-              </button>
-              <button className="btn btn-teal" style={{ flex: 1 }} onClick={() => handleSaveQuestion(true)} disabled={savingQ}>
-                SAVE & ADD NEXT
-              </button>
-              {editingQuestionId && (
-                <button className="btn btn-outline" onClick={handleClearQForm}>
-                  Cancel
-                </button>
-              )}
-            </div>
           </div>
 
-          {/* Right Column: Question Bank List */}
-          <div className="card animate-fade-in" style={{ maxHeight: '750px', overflowY: 'auto' }}>
-            <h2 style={{ color: '#25256F', fontSize: '1.3rem', marginBottom: '1rem' }}>
-              Question Set ({questions.length})
-            </h2>
+          {/* MODE 1: MANUAL QUESTION BUILDER */}
+          {builderMode === 'manual' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+              {/* Left Column: Question Form Editor */}
+              <div className="card card-cream animate-fade-in" style={{ borderLeft: '6px solid #F58220', height: 'fit-content' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h2 style={{ color: '#25256F', fontSize: '1.3rem' }}>
+                    {editingQuestionId ? 'Edit Question' : 'Add New Question'}
+                  </h2>
+                  <select
+                    className="form-control"
+                    style={{ width: '180px', padding: '0.4rem 0.6rem' }}
+                    value={selectedRoundId}
+                    onChange={(e) => setSelectedRoundId(e.target.value)}
+                  >
+                    {[...(room?.rounds || [])].sort((a: any, b: any) => (a.roundNumber || 0) - (b.roundNumber || 0)).map((r: any) => (
+                      <option key={r.id} value={r.id}>
+                        Round {r.roundNumber}: {r.roundName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            {questions.length === 0 ? (
-              <p style={{ color: '#64748B', fontStyle: 'italic' }}>No questions created yet for this round.</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '1rem' }}>
-                {questions.map((q: any, idx: number) => {
-                  const correctOpt = q.options?.find((o: any) => o.isCorrect);
-                  return (
-                    <div key={q.id} style={{ background: '#FFF1DC', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #34349A' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span style={{ fontWeight: 800, color: '#25256F' }}>Q{idx + 1}</span>
-                        <div style={{ display: 'flex', gap: '0.3rem' }}>
-                          <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} disabled={idx === 0} onClick={() => handleMoveQuestion(idx, 'up')}>↑</button>
-                          <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} disabled={idx === questions.length - 1} onClick={() => handleMoveQuestion(idx, 'down')}>↓</button>
-                          <button className="btn btn-indigo" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleEditQuestionClick(q)}>EDIT</button>
-                          <button className="btn btn-danger" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleDeleteQuestionClick(q.id)}>DELETE</button>
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Question Text</label>
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    placeholder="What is the output of the following code?"
+                    value={qText}
+                    onChange={(e) => setQText(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Code Block (Optional)</label>
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    style={{ fontFamily: 'monospace', fontSize: '0.85rem', background: '#1E1E38', color: '#82AAFF' }}
+                    placeholder="int x = 10; printf(&quot;%d&quot;, x);"
+                    value={qCode}
+                    onChange={(e) => setQCode(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option A</label>
+                    <input type="text" className="form-control" value={qOptA} onChange={(e) => setQOptA(e.target.value)} required />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option B</label>
+                    <input type="text" className="form-control" value={qOptB} onChange={(e) => setQOptB(e.target.value)} required />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option C</label>
+                    <input type="text" className="form-control" value={qOptC} onChange={(e) => setQOptC(e.target.value)} required />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Option D</label>
+                    <input type="text" className="form-control" value={qOptD} onChange={(e) => setQOptD(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#F58220', fontWeight: 800 }}>Correct Answer Choice</label>
+                  <div style={{ display: 'flex', gap: '1.5rem', background: '#FFFFFF', padding: '0.75rem', borderRadius: '6px', border: '1px solid #CBD5E1' }}>
+                    {(['A', 'B', 'C', 'D'] as const).map((letter) => (
+                      <label key={letter} style={{ cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#171717' }}>
+                        <input
+                          type="radio"
+                          name="correctChoice"
+                          checked={qCorrect === letter}
+                          onChange={() => setQCorrect(letter)}
+                        />
+                        Option {letter}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#25256F', fontWeight: 700 }}>Explanation (Optional)</label>
+                  <input type="text" className="form-control" placeholder="Brief explanation for correct answer" value={qExp} onChange={(e) => setQExp(e.target.value)} />
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                  <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleSaveQuestion(false)} disabled={savingQ}>
+                    SAVE QUESTION
+                  </button>
+                  <button className="btn btn-teal" style={{ flex: 1 }} onClick={() => handleSaveQuestion(true)} disabled={savingQ}>
+                    SAVE & ADD NEXT
+                  </button>
+                  {editingQuestionId && (
+                    <button className="btn btn-outline" onClick={handleClearQForm}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Question Bank List */}
+              <div className="card animate-fade-in" style={{ maxHeight: '750px', overflowY: 'auto' }}>
+                <h2 style={{ color: '#25256F', fontSize: '1.3rem', marginBottom: '1rem' }}>
+                  Question Set ({questions.length})
+                </h2>
+
+                {questions.length === 0 ? (
+                  <p style={{ color: '#64748B', fontStyle: 'italic' }}>No questions created yet for this round.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '1rem' }}>
+                    {questions.map((q: any, idx: number) => {
+                      const correctOpt = q.options?.find((o: any) => o.isCorrect);
+                      return (
+                        <div key={q.id} style={{ background: '#FFF1DC', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #34349A' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <span style={{ fontWeight: 800, color: '#25256F' }}>Q{idx + 1}</span>
+                            <div style={{ display: 'flex', gap: '0.3rem' }}>
+                              <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} disabled={idx === 0} onClick={() => handleMoveQuestion(idx, 'up')}>↑</button>
+                              <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} disabled={idx === questions.length - 1} onClick={() => handleMoveQuestion(idx, 'down')}>↓</button>
+                              <button className="btn btn-indigo" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleEditQuestionClick(q)}>EDIT</button>
+                              <button className="btn btn-danger" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleDeleteQuestionClick(q.id)}>DELETE</button>
+                            </div>
+                          </div>
+
+                          <p style={{ fontWeight: 600, color: '#171717', marginBottom: '0.5rem' }}>{q.questionText}</p>
+                          {q.codeSnippet && <pre className="code-snippet" style={{ fontSize: '0.8rem', padding: '0.5rem' }}>{q.codeSnippet}</pre>}
+
+                          <div style={{ fontSize: '0.85rem', color: '#475569', marginTop: '0.5rem' }}>
+                            Correct Answer: <span className="status-pill status-active" style={{ fontSize: '0.75rem' }}>Option {correctOpt?.optionLetter}</span>
+                          </div>
                         </div>
-                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
-                      <p style={{ fontWeight: 600, color: '#171717', marginBottom: '0.5rem' }}>{q.questionText}</p>
-                      {q.codeSnippet && <pre className="code-snippet" style={{ fontSize: '0.8rem', padding: '0.5rem' }}>{q.codeSnippet}</pre>}
+          {/* MODE 2: EXCEL IMPORT WORKFLOW */}
+          {builderMode === 'excel' && (
+            <div className="card animate-fade-in" style={{ borderTop: '6px solid #176B5B' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <h2 style={{ color: '#25256F', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>
+                    Import Questions from Excel (.xlsx)
+                  </h2>
+                  <p style={{ color: '#64748B', fontSize: '0.9rem', marginTop: '0.25rem' }}>
+                    Upload an Excel spreadsheet with columns: <strong>Question, Option A, Option B, Option C, Option D, Answer</strong>.
+                  </p>
+                </div>
+                <button
+                  className="btn btn-teal"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}
+                  onClick={handleDownloadTemplate}
+                >
+                  📥 DOWNLOAD EXCEL TEMPLATE
+                </button>
+              </div>
 
-                      <div style={{ fontSize: '0.85rem', color: '#475569', marginTop: '0.5rem' }}>
-                        Correct Answer: <span className="status-pill status-active" style={{ fontSize: '0.75rem' }}>Option {correctOpt?.optionLetter}</span>
+              {/* Step 1: Destination Round & File Selector */}
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontWeight: 800, color: '#25256F', fontSize: '0.95rem', marginBottom: '0.5rem' }}>
+                    Import Questions To:
+                  </label>
+                  <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+                    {[...(room?.rounds || [])].sort((a: any, b: any) => (a.roundNumber || 0) - (b.roundNumber || 0)).map((r: any) => (
+                      <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 700, color: '#171717' }}>
+                        <input
+                          type="radio"
+                          name="excelDestinationRound"
+                          checked={(excelDestinationRoundId || selectedRoundId) === r.id}
+                          onChange={() => {
+                            setExcelDestinationRoundId(r.id);
+                            if (excelPreview) setExcelPreview(null);
+                          }}
+                        />
+                        <span>Round {r.roundNumber} — {r.roundName}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '260px' }}>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      id="excel-upload-input"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setExcelFile(file);
+                          setExcelPreview(null);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="excel-upload-input"
+                      className="btn btn-outline"
+                      style={{ display: 'inline-block', cursor: 'pointer', fontWeight: 700, width: '100%', textAlign: 'center', padding: '0.75rem', background: '#FFFFFF' }}
+                    >
+                      📁 {excelFile ? excelFile.name : 'Choose Excel File (.xlsx)'}
+                    </label>
+                  </div>
+
+                  <button
+                    className="btn btn-primary"
+                    disabled={!excelFile || excelParsing}
+                    onClick={handlePreviewExcel}
+                    style={{ padding: '0.75rem 1.5rem', fontWeight: 700 }}
+                  >
+                    {excelParsing ? 'Parsing Excel...' : '🔍 PREVIEW & VALIDATE EXCEL'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2: Validation Summary & Preview Table */}
+              {excelPreview && (
+                <div className="animate-fade-in">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '1rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>File Name</span>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#171717', marginTop: '0.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {excelPreview.fileName}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    <div style={{ background: '#E6F6F3', border: '1px solid #A7F3D0', padding: '1rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: '#047857', fontWeight: 700, textTransform: 'uppercase' }}>Valid Questions</span>
+                      <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#047857', marginTop: '0.1rem' }}>
+                        {excelPreview.validCount}
+                      </div>
+                    </div>
+                    <div style={{ background: excelPreview.invalidCount > 0 ? '#FEF2F2' : '#F8FAFC', border: excelPreview.invalidCount > 0 ? '1px solid #FECACA' : '1px solid #E2E8F0', padding: '1rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: excelPreview.invalidCount > 0 ? '#B91C1C' : '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>Invalid Rows</span>
+                      <div style={{ fontSize: '1.6rem', fontWeight: 900, color: excelPreview.invalidCount > 0 ? '#B91C1C' : '#64748B', marginTop: '0.1rem' }}>
+                        {excelPreview.invalidCount}
+                      </div>
+                    </div>
+                    <div style={{ background: excelPreview.duplicateCount > 0 ? '#FFFBEB' : '#F8FAFC', border: excelPreview.duplicateCount > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0', padding: '1rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: excelPreview.duplicateCount > 0 ? '#B45309' : '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>Duplicates Found</span>
+                      <div style={{ fontSize: '1.6rem', fontWeight: 900, color: excelPreview.duplicateCount > 0 ? '#B45309' : '#64748B', marginTop: '0.1rem' }}>
+                        {excelPreview.duplicateCount}
+                      </div>
+                    </div>
+                    <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: '1rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: '#1D4ED8', fontWeight: 700, textTransform: 'uppercase' }}>Destination</span>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1D4ED8', marginTop: '0.3rem' }}>
+                        Round {excelPreview.roundNumber} ({excelPreview.existingQuestionsCount} exist)
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem', background: '#F1F5F9', padding: '0.85rem 1.25rem', borderRadius: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: '#1E293B', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={excludeDuplicates}
+                        onChange={(e) => setExcludeDuplicates(e.target.checked)}
+                      />
+                      Exclude duplicate questions ({excelPreview.duplicateCount})
+                    </label>
+
+                    {(() => {
+                      const importableCount = excelPreview.rows.filter((r: any) => {
+                        if (r.status === 'INVALID') return false;
+                        if (excludeDuplicates && r.status === 'DUPLICATE') return false;
+                        return true;
+                      }).length;
+
+                      return (
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <button
+                            className="btn btn-outline"
+                            onClick={() => { setExcelPreview(null); setExcelFile(null); }}
+                          >
+                            Clear
+                          </button>
+                          <button
+                            className="btn btn-primary"
+                            disabled={importableCount === 0 || excelImporting}
+                            onClick={() => setShowImportConfirmModal(true)}
+                            style={{ fontWeight: 800, padding: '0.5rem 1.5rem' }}
+                          >
+                            🚀 IMPORT {importableCount} QUESTIONS
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Preview Table */}
+                  <div style={{ maxHeight: '550px', overflowY: 'auto', border: '1px solid #CBD5E1', borderRadius: '8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                      <thead style={{ position: 'sticky', top: 0, background: '#25256F', color: '#FFFFFF', zIndex: 10 }}>
+                        <tr style={{ textAlign: 'left' }}>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '55px' }}>Row</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '35%' }}>Question</th>
+                          <th style={{ padding: '0.65rem 0.75rem' }}>Option A</th>
+                          <th style={{ padding: '0.65rem 0.75rem' }}>Option B</th>
+                          <th style={{ padding: '0.65rem 0.75rem' }}>Option C</th>
+                          <th style={{ padding: '0.65rem 0.75rem' }}>Option D</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '70px', textAlign: 'center' }}>Ans</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '130px' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {excelPreview.rows.map((row: any) => {
+                          const isInvalid = row.status === 'INVALID';
+                          const isDup = row.status === 'DUPLICATE';
+                          const isValid = row.status === 'VALID';
+
+                          return (
+                            <tr
+                              key={row.rowNumber}
+                              style={{
+                                borderBottom: '1px solid #E2E8F0',
+                                background: isInvalid ? '#FEF2F2' : isDup ? '#FFFBEB' : '#FFFFFF',
+                              }}
+                            >
+                              <td style={{ padding: '0.65rem 0.75rem', fontWeight: 700, color: '#64748B' }}>
+                                #{row.rowNumber}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600, color: '#171717' }}>
+                                <div style={{ whiteSpace: 'pre-wrap', maxHeight: '80px', overflowY: 'auto' }}>
+                                  {row.questionText}
+                                </div>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.75rem', color: '#334155' }}>{row.optionA}</td>
+                              <td style={{ padding: '0.65rem 0.75rem', color: '#334155' }}>{row.optionB}</td>
+                              <td style={{ padding: '0.65rem 0.75rem', color: '#334155' }}>{row.optionC}</td>
+                              <td style={{ padding: '0.65rem 0.75rem', color: '#334155' }}>{row.optionD}</td>
+                              <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center' }}>
+                                <span style={{ fontWeight: 800, fontFamily: 'monospace', padding: '0.2rem 0.5rem', background: '#EFF6FF', color: '#1D4ED8', borderRadius: '4px' }}>
+                                  {row.answer || '—'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.75rem' }}>
+                                {isValid && (
+                                  <span style={{ color: '#047857', fontWeight: 700, fontSize: '0.8rem', background: '#D1FAE5', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
+                                    ✓ VALID
+                                  </span>
+                                )}
+                                {isInvalid && (
+                                  <div>
+                                    <span style={{ color: '#B91C1C', fontWeight: 700, fontSize: '0.8rem', background: '#FEE2E2', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
+                                      ✗ INVALID
+                                    </span>
+                                    <div style={{ fontSize: '0.75rem', color: '#B91C1C', marginTop: '0.25rem' }}>
+                                      {row.errors?.join(', ')}
+                                    </div>
+                                  </div>
+                                )}
+                                {isDup && (
+                                  <div>
+                                    <span style={{ color: '#B45309', fontWeight: 700, fontSize: '0.8rem', background: '#FEF3C7', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
+                                      ⚠️ DUPLICATE
+                                    </span>
+                                    <div style={{ fontSize: '0.75rem', color: '#B45309', marginTop: '0.25rem' }}>
+                                      {row.warnings?.join(', ')}
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2330,6 +2750,74 @@ export const AdminDashboard: React.FC = () => {
                 onClick={handleResetCompetitorClaim}
               >
                 {resettingClaim ? 'RESETTING...' : 'Confirm Reset Claim'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXCEL IMPORT CONFIRMATION MODAL */}
+      {showImportConfirmModal && excelPreview && (
+        <div className="modal-overlay animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget && !excelImporting) setShowImportConfirmModal(false); }}>
+          <div className="modal-card" style={{ maxWidth: '540px', borderTop: '6px solid #25256F' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '1.8rem' }}>📊</span>
+              <h3 style={{ color: '#25256F', fontSize: '1.3rem', fontWeight: 800, margin: 0 }}>
+                CONFIRM EXCEL QUESTION IMPORT
+              </h3>
+            </div>
+
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '1.2rem', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.9rem' }}>
+                <div>
+                  <span style={{ color: '#64748B' }}>Destination Round:</span>
+                  <div style={{ fontWeight: 800, color: '#25256F', fontSize: '1rem' }}>
+                    Round {excelPreview.roundNumber} ({excelPreview.roundName})
+                  </div>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B' }}>Existing Questions:</span>
+                  <div style={{ fontWeight: 800, color: '#334155', fontSize: '1rem' }}>
+                    {excelPreview.existingQuestionsCount} questions
+                  </div>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B' }}>Questions to Import:</span>
+                  <div style={{ fontWeight: 800, color: '#047857', fontSize: '1.1rem' }}>
+                    +{excelPreview.rows.filter((r: any) => r.status === 'VALID' || (!excludeDuplicates && r.status === 'DUPLICATE')).length} questions
+                  </div>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B' }}>Duplicates Skipped:</span>
+                  <div style={{ fontWeight: 800, color: excludeDuplicates ? '#B45309' : '#64748B', fontSize: '1rem' }}>
+                    {excludeDuplicates ? excelPreview.duplicateCount : 0} questions
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid #E2E8F0', fontSize: '0.85rem', color: '#475569', lineHeight: 1.5 }}>
+                <div>✅ Questions will be <strong>appended sequentially</strong> after existing questions (starting at #{excelPreview.existingQuestionsCount + 1}).</div>
+                <div>✅ Existing questions and option order will <strong>NOT be overwritten or modified</strong>.</div>
+                <div>✅ Each question is assigned fixed options (A, B, C, D) with the verified answer.</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-outline"
+                disabled={excelImporting}
+                onClick={() => setShowImportConfirmModal(false)}
+                style={{ padding: '0.5rem 1.25rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#25256F', borderColor: '#25256F', fontWeight: 800, padding: '0.5rem 1.5rem' }}
+                disabled={excelImporting}
+                onClick={handleExecuteImport}
+              >
+                {excelImporting ? 'IMPORTING QUESTIONS...' : 'CONFIRM & IMPORT QUESTIONS'}
               </button>
             </div>
           </div>

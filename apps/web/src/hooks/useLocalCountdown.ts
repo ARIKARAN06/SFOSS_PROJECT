@@ -47,7 +47,12 @@ export function useLocalCountdown({
     }
     if (!targetDeadline) return 0;
     const targetMs = new Date(targetDeadline).getTime();
+    if (isNaN(targetMs)) return 0;
+
+    // Use server-authoritative time if available; otherwise fallback safely
     const currentMs = serverTime ? new Date(serverTime).getTime() : Date.now();
+    if (isNaN(currentMs)) return 0;
+
     return Math.max(0, Math.floor((targetMs - currentMs) / 1000));
   };
 
@@ -71,10 +76,10 @@ export function useLocalCountdown({
       return;
     }
 
-    // Capture baseline monotonic time
+    // Capture baseline monotonic timestamp
     const startPerfTime = performance.now();
 
-    const interval = setInterval(() => {
+    const updateRemaining = () => {
       const elapsedMs = performance.now() - startPerfTime;
       const elapsedSec = Math.floor(elapsedMs / 1000);
       const remaining = Math.max(0, initialDuration - elapsedSec);
@@ -82,15 +87,29 @@ export function useLocalCountdown({
       setSecondsRemaining(remaining);
 
       if (remaining <= 0) {
-        clearInterval(interval);
         if (!hasExpiredRef.current) {
           hasExpiredRef.current = true;
           onExpiredRef.current?.();
         }
       }
-    }, 250);
+    };
 
-    return () => clearInterval(interval);
+    const interval = setInterval(updateRemaining, 250);
+
+    // Instant recovery on tab switch / wake from sleep
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        updateRemaining();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', updateRemaining);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', updateRemaining);
+    };
   }, [
     targetDeadline ? new Date(targetDeadline).getTime() : null,
     serverTime ? new Date(serverTime).getTime() : null,

@@ -8,6 +8,9 @@ import {
   handleUploadQuestionPaper,
   handleApproveQuestions,
   handleGetRoundQuestions,
+  handleDownloadExcelTemplate,
+  handlePreviewExcelQuestions,
+  handleImportExcelQuestions,
 } from '../controllers/questionController';
 import { authenticate, requireAdmin } from '../middleware/auth';
 
@@ -19,6 +22,11 @@ router.post('/manual', authenticate, requireAdmin, handleCreateQuestion);
 router.put('/manual/:questionId', authenticate, requireAdmin, handleUpdateQuestion);
 router.delete('/manual/:questionId', authenticate, requireAdmin, handleDeleteQuestion);
 router.post('/reorder/:roundId', authenticate, requireAdmin, handleReorderQuestions);
+
+// Excel Question Import Endpoints (Admin Only)
+router.get('/excel-template', authenticate, requireAdmin, handleDownloadExcelTemplate);
+router.post('/excel-preview', authenticate, requireAdmin, upload.single('file'), handlePreviewExcelQuestions);
+router.post('/excel-import', authenticate, requireAdmin, handleImportExcelQuestions);
 
 // Document Upload Endpoints (Admin Only)
 router.post('/upload', authenticate, requireAdmin, upload.single('file'), handleUploadQuestionPaper);
