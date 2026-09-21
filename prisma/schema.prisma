@@ -1,0 +1,236 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPERADMIN
+  EVENT_ORGANIZER
+  PARTICIPANT_TEAM
+}
+
+enum RoundStatus {
+  CREATED
+  LOBBY_OPEN
+  LOBBY_LOCKED
+  PRE_START
+  ROUND_ACTIVE
+  ROUND_PAUSED
+  ROUND_ENDED
+  SCORING_COMPLETE
+  RESULTS_PUBLISHED
+}
+
+enum ViolationType {
+  TAB_SWITCH
+  WINDOW_BLUR
+  FULLSCREEN_EXIT
+  KEYBOARD_SHORTCUT
+  CONTEXT_MENU
+  NETWORK_DISCONNECT
+  NETWORK_RECONNECT
+  COPY_ATTEMPT
+  PASTE_ATTEMPT
+  RELOAD_ATTEMPT
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(PARTICIPANT_TEAM)
+  createdAt    DateTime @default(now())
+  team         Team?
+}
+
+model Team {
+  id                 String               @id @default(uuid())
+  roomId             String?
+  room               QuizRoom?            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId             String               @unique
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamNumber         Int                  @default(1)
+  teamName           String?
+  passcode           String               @default("")
+  member1Name        String               @default("")
+  member1RegNo       String               @default("")
+  member2Name        String               @default("")
+  member2RegNo       String               @default("")
+  isClaimed          Boolean              @default(false)
+  sessionToken       String?              @unique
+  isActiveSlot       Boolean              @default(true)
+  isDisqualified     Boolean              @default(false)
+  disqualifiedReason String?
+  disqualifiedAt     DateTime?
+  isQualifiedForRound2 Boolean            @default(false)
+  player1Name        String?
+  player2Name        String?
+  sessions           ParticipantSession[]
+  submissions        AnswerSubmission[]
+  antiCheatLogs      AntiCheatLog[]
+  scores             FinalResult[]
+  round2Competitors  RoundCompetitor[]
+
+  @@unique([roomId, teamNumber])
+}
+
+model QuizRoom {
+  id         String      @id @default(uuid())
+  roomCode   String      @unique
+  title      String
+  maxTeams   Int         @default(40)
+  isTestRoom Boolean     @default(false)
+  status     RoundStatus @default(CREATED)
+  rounds     QuizRound[]
+  teams      Team[]
+  createdAt  DateTime    @default(now())
+}
+
+model QuizRound {
+  id              String               @id @default(uuid())
+  roomId          String
+  room            QuizRoom             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roundNumber     Int
+  roundName       String // "SYNTRACE" or "DEBUGNOVA"
+  durationMinutes Int                  @default(30)
+  preStartDurationMinutes Int          @default(0)
+  scheduledAnswerStartAt  DateTime?
+  marksPerCorrect Float                @default(1.0)
+  penaltyPerWrong Float                @default(-1.0)
+  startTime       DateTime?
+  endTime         DateTime?
+  status          RoundStatus          @default(CREATED)
+  questions       Question[]
+  sessions        ParticipantSession[]
+  submissions     AnswerSubmission[]
+  scores          FinalResult[]
+  competitors     RoundCompetitor[]
+}
+
+model RoundCompetitor {
+  id                 String               @id @default(uuid())
+  roundId            String
+  round              QuizRound            @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  originalTeamId     String
+  originalTeam       Team                 @relation(fields: [originalTeamId], references: [id], onDelete: Cascade)
+  playerName         String
+  playerPosition     String               // "A" or "B"
+  competitorCode     String               // e.g. "01-A", "01-B"
+  isClaimed          Boolean              @default(false)
+  sessionToken       String?              @unique
+  isDisqualified     Boolean              @default(false)
+  disqualifiedReason String?
+  disqualifiedAt     DateTime?
+  status             String               @default("READY") // "READY", "ACTIVE", "SUBMITTED", "DISQUALIFIED"
+  sessions           ParticipantSession[]
+  submissions        AnswerSubmission[]
+  scores             FinalResult[]
+  antiCheatLogs      AntiCheatLog[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([roundId, originalTeamId, playerPosition])
+  @@unique([roundId, competitorCode])
+}
+
+model Question {
+  id             String             @id @default(uuid())
+  roundId        String
+  round          QuizRound          @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  questionNumber Int
+  questionText   String
+  codeSnippet    String?
+  explanation    String?
+  options        Option[]
+  submissions    AnswerSubmission[]
+}
+
+model Option {
+  id           String             @id @default(uuid())
+  questionId   String
+  question     Question           @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionLetter String // "A", "B", "C", "D"
+  optionText   String
+  isCorrect    Boolean            @default(false)
+  submissions  AnswerSubmission[]
+}
+
+model ParticipantSession {
+  id            String           @id @default(uuid())
+  teamId        String?
+  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  competitorId  String?
+  competitor    RoundCompetitor? @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  roundId       String
+  round         QuizRound        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  questionOrder Json // Array of Master Question IDs in rendered order
+  optionOrder   Json // Map of QuestionID -> Array of Option IDs in rendered order
+  startedAt     DateTime         @default(now())
+  submittedAt   DateTime?
+  isCompleted   Boolean          @default(false)
+
+  @@unique([teamId, roundId])
+  @@unique([competitorId, roundId])
+}
+
+model AnswerSubmission {
+  id               String           @id @default(uuid())
+  teamId           String?
+  team             Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  competitorId     String?
+  competitor       RoundCompetitor? @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  roundId          String
+  round            QuizRound        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  questionId       String
+  question         Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionId String?
+  selectedOption   Option?          @relation(fields: [selectedOptionId], references: [id], onDelete: SetNull)
+  isCorrect        Boolean?
+  pointsAwarded    Float?
+  submittedAt      DateTime         @default(now())
+
+  @@unique([teamId, roundId, questionId])
+  @@unique([competitorId, roundId, questionId])
+  @@index([teamId, roundId])
+  @@index([competitorId, roundId])
+}
+
+model AntiCheatLog {
+  id            String           @id @default(uuid())
+  teamId        String?
+  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  competitorId  String?
+  competitor    RoundCompetitor? @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  roundId       String?
+  violationType ViolationType
+  timestamp     DateTime         @default(now())
+  metadata      Json?
+
+  @@index([teamId, timestamp])
+  @@index([competitorId, timestamp])
+  @@index([roundId, timestamp])
+}
+
+model FinalResult {
+  id              String           @id @default(uuid())
+  teamId          String?
+  team            Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  competitorId    String?
+  competitor      RoundCompetitor? @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  roundId         String
+  round           QuizRound        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  totalCorrect    Int              @default(0)
+  totalWrong      Int              @default(0)
+  totalUnanswered Int              @default(0)
+  score           Float            @default(0.0)
+  rank            Int?
+  submittedAt     DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@unique([teamId, roundId])
+  @@unique([competitorId, roundId])
+}

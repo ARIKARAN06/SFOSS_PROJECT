@@ -1,0 +1,42 @@
+{
+  "name": "fossfury26",
+  "version": "2.0.0",
+  "private": true,
+  "description": "FOSSFURY 26 — SFOSS Technical Quiz Platform (100% Offline Local Architecture)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed"
+  },
+  "keywords": [
+    "sfoss",
+    "quiz-platform",
+    "offline-first",
+    "sastra",
+    "syntrace",
+    "debugnova"
+  ],
+  "author": "SASTRA Free & Open Source Software (SFOSS)",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "prisma": "^5.19.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.7"
+  },
+  "prisma": {
+  "seed": "node node_modules/tsx/dist/cli.mjs prisma/seed.ts"
+  },
+  "dependencies": {
+    "vite": "8.3.0"
+  }
+}
