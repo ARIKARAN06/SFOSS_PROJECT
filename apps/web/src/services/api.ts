@@ -43,3 +43,60 @@ export async function fetchApi<T = any>(
     };
   }
 }
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem('sfoss_token');
+}
+
+export async function downloadFileApi(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<{ success: boolean; blob?: Blob; error?: string; status?: number }> {
+  const token = getAuthToken();
+
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const url = `${API_BASE}${endpoint}`;
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (!res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const errorData = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          status: res.status,
+          error: errorData.error || `Request failed with status ${res.status}`,
+        };
+      }
+      return {
+        success: false,
+        status: res.status,
+        error: `Request failed with status ${res.status} (${res.statusText})`,
+      };
+    }
+
+    const blob = await res.blob();
+    return {
+      success: true,
+      blob,
+      status: res.status,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Network request failed. Ensure local server is running.',
+    };
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchApi } from '../services/api';
+import { fetchApi, downloadFileApi } from '../services/api';
 
 export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'rounds' | 'builder' | 'teams' | 'qualification' | 'anticheat' | 'results' | 'devroom'>('rounds');
@@ -474,14 +474,24 @@ export const AdminDashboard: React.FC = () => {
   // --------------------------------------------------
   const handleDownloadTemplate = async () => {
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const response = await fetch('/api/questions/excel-template', {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+      setErrorMsg(null);
+      setMessage(null);
+      const res = await downloadFileApi('/questions/excel-template');
+      if (!res.success || !res.blob) {
+        if (res.status === 401) {
+          setErrorMsg('Authentication session expired or invalid. Please log in again.');
+        } else if (res.status === 403) {
+          setErrorMsg('Access denied. Administrator privileges required.');
+        } else {
+          setErrorMsg(res.error || 'Failed to download Excel template.');
+        }
+        return;
+      }
+
+      // Verify correct XLSX MIME type
+      const blob = new Blob([res.blob], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      if (!response.ok) throw new Error('Failed to download Excel template.');
-      const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -490,6 +500,7 @@ export const AdminDashboard: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+      setMessage('Excel template downloaded successfully. Please remove or replace the sample questions before importing real questions.');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to download Excel template.');
     }
@@ -515,19 +526,15 @@ export const AdminDashboard: React.FC = () => {
     formData.append('roundId', targetRoundId);
 
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const response = await fetch('/api/questions/excel-preview', {
+      const res = await fetchApi('/questions/excel-preview', {
         method: 'POST',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
         body: formData,
       });
-      const data = await response.json();
-      if (data.success && data.preview) {
-        setExcelPreview(data.preview);
+
+      if (res.success && res.preview) {
+        setExcelPreview(res.preview);
       } else {
-        setErrorMsg(data.error || 'Failed to parse Excel file.');
+        setErrorMsg(res.error || 'Failed to parse Excel file.');
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error uploading file.');
@@ -1370,7 +1377,7 @@ export const AdminDashboard: React.FC = () => {
           {/* MODE 2: EXCEL IMPORT WORKFLOW */}
           {builderMode === 'excel' && (
             <div className="card animate-fade-in" style={{ borderTop: '6px solid #176B5B' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                   <h2 style={{ color: '#25256F', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>
                     Import Questions from Excel (.xlsx)
@@ -1386,6 +1393,14 @@ export const AdminDashboard: React.FC = () => {
                 >
                   📥 DOWNLOAD EXCEL TEMPLATE
                 </button>
+              </div>
+
+              {/* Template Guidance Alert */}
+              <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '0.75rem 1.25rem', marginBottom: '1.25rem', fontSize: '0.85rem', color: '#1E40AF', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>ℹ️</span>
+                <div>
+                  <strong>Important Template Guidance:</strong> The downloadable template contains 3 sample questions for reference. Please <strong>remove or replace all sample rows</strong> with your real competition questions before uploading.
+                </div>
               </div>
 
               {/* Step 1: Destination Round & File Selector */}

@@ -6,22 +6,63 @@ import { RoundStatus } from '@sfoss/shared';
 async function main() {
   console.log('--- STARTING VERIFICATION: FIXED OPTION ORDER & PARTICIPANT-LOCAL TIMER BACKEND ---');
 
-  // 1. Find round with questions
-  const existingQuestion = await prisma.question.findFirst({
-    include: { round: { include: { room: { include: { teams: true } } } } },
+  // 1. Find room FURY20 or active room
+  const activeRoom = await prisma.quizRoom.findFirst({
+    where: { roomCode: 'FURY20' },
+    include: { rounds: { orderBy: { roundNumber: 'asc' } }, teams: true },
   });
 
-  if (!existingQuestion) {
-    console.log('No questions found in database.');
+  if (!activeRoom || activeRoom.rounds.length === 0) {
+    console.log('FURY20 room or rounds not found.');
     return;
   }
 
-  const round1 = existingQuestion.round;
-  const activeRoom = round1.room;
+  const round1 = activeRoom.rounds[0];
   console.log(`✅ Using Room: ${activeRoom.roomCode} - Round: ${round1.roundName} (${round1.id})`);
 
-  const team1 = activeRoom.teams[0];
-  const team2 = activeRoom.teams[1] || activeRoom.teams[0];
+  // Ensure at least 2 questions exist in round 1
+  const qCount = await prisma.question.count({ where: { roundId: round1.id } });
+  if (qCount === 0) {
+    console.log('   -> Seeding 2 test questions into Round 1 for option order verification...');
+    await prisma.question.create({
+      data: {
+        roundId: round1.id,
+        questionNumber: 1,
+        questionText: 'What does FOSS stand for?',
+        options: {
+          create: [
+            { optionLetter: 'A', optionText: 'Free and Open Source Software', isCorrect: true },
+            { optionLetter: 'B', optionText: 'Federal Operating System Security', isCorrect: false },
+            { optionLetter: 'C', optionText: 'Fully Optimized System Software', isCorrect: false },
+            { optionLetter: 'D', optionText: 'Finite Open Source Standard', isCorrect: false },
+          ],
+        },
+      },
+    });
+    await prisma.question.create({
+      data: {
+        roundId: round1.id,
+        questionNumber: 2,
+        questionText: 'Which kernel does Ubuntu use?',
+        options: {
+          create: [
+            { optionLetter: 'A', optionText: 'NT Kernel', isCorrect: false },
+            { optionLetter: 'B', optionText: 'Linux Kernel', isCorrect: true },
+            { optionLetter: 'C', optionText: 'XNU Kernel', isCorrect: false },
+            { optionLetter: 'D', optionText: 'Mach Kernel', isCorrect: false },
+          ],
+        },
+      },
+    });
+  }
+
+  const team1 = activeRoom.teams[0] || await prisma.team.findFirst();
+  const team2 = activeRoom.teams[1] || team1;
+
+  if (!team1) {
+    console.log('No teams found.');
+    return;
+  }
 
   console.log('1. Testing getOrCreateParticipantSession for Team 1 and Team 2...');
   const session1 = await getOrCreateParticipantSession({ teamId: team1.id, roundId: round1.id });

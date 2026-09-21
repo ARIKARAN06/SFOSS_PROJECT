@@ -308,8 +308,419 @@ describe('Excel Question Import Service', () => {
     expect(result.success).toBe(true);
     expect(result.count).toBe(1); // only Unique Question 4 imported
 
-    // Total in round should now be 4
     const totalCount = await prisma.question.count({ where: { roundId: testRoundId } });
     expect(totalCount).toBe(4);
   });
+
+  it('8. Verifies template workbook content: 2 sheets, exact 6 headers, sample questions, and valid answers', () => {
+    const buffer = generateExcelTemplate();
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    expect(wb.SheetNames).toEqual(['Questions', 'Instructions']);
+
+    const qSheet = wb.Sheets['Questions'];
+    const rows = XLSX.utils.sheet_to_json<string[]>(qSheet, { header: 1 });
+    expect(rows[0]).toEqual(['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer']);
+
+    // Check sample rows (rows 1, 2, 3)
+    expect(rows.length).toBeGreaterThanOrEqual(4);
+    for (let i = 1; i <= 3; i++) {
+      const row = rows[i];
+      expect(row[0]).toBeTruthy(); // Question text
+      expect(row[1]).toBeTruthy(); // Option A
+      expect(row[2]).toBeTruthy(); // Option B
+      expect(row[3]).toBeTruthy(); // Option C
+      expect(row[4]).toBeTruthy(); // Option D
+      expect(['A', 'B', 'C', 'D']).toContain(row[5]); // Correct answer letter
+    }
+
+    // Check Instructions sheet
+    const instSheet = wb.Sheets['Instructions'];
+    const instRows = XLSX.utils.sheet_to_json<string[]>(instSheet, { header: 1 });
+    const flattened = instRows.flat().join(' ');
+    expect(flattened).toContain('FOSSFURY 26');
+    expect(flattened).toContain('Question');
+    expect(flattened).toContain('Answer');
+  });
 });
+
+describe('Excel Import HTTP API & Auth Protection Tests', () => {
+  let server: any;
+  let baseUrl: string;
+  let adminToken: string;
+  let participantToken: string;
+  let testRoomId: string;
+  let testRound1Id: string;
+  let testRound2Id: string;
+
+  beforeAll(async () => {
+    const { app } = await import('../apps/server/src/app');
+    const http = await import('http');
+    const jwt = await import('jsonwebtoken');
+    const { ENV } = await import('../apps/server/src/config/env');
+    const { Role } = await import('@sfoss/shared');
+
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+    baseUrl = `http://127.0.0.1:${port}`;
+
+    // Generate valid test JWTs
+    adminToken = jwt.default.sign(
+      { userId: 'admin-test-id', username: 'admin', role: Role.SUPERADMIN },
+      ENV.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    participantToken = jwt.default.sign(
+      { userId: 'part-test-id', username: 'team01', role: Role.PARTICIPANT_TEAM, teamId: 'team-mock-id' },
+      ENV.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    // Setup dedicated HTTP test room with Round 1 and Round 2
+    let room = await prisma.quizRoom.findFirst({
+      where: { roomCode: 'HTTP_EXCEL_TEST' },
+    });
+    if (!room) {
+      room = await prisma.quizRoom.create({
+        data: {
+          roomCode: 'HTTP_EXCEL_TEST',
+          title: 'HTTP Excel Test Room',
+          status: 'CREATED',
+        },
+      });
+    }
+    testRoomId = room.id;
+
+    // Create Round 1
+    let r1 = await prisma.quizRound.findFirst({
+      where: { roomId: testRoomId, roundNumber: 1 },
+    });
+    if (!r1) {
+      r1 = await prisma.quizRound.create({
+        data: {
+          roomId: testRoomId,
+          roundNumber: 1,
+          roundName: 'SYNTRACE',
+          status: 'CREATED',
+          durationMinutes: 20,
+        },
+      });
+    }
+    testRound1Id = r1.id;
+
+    // Create Round 2
+    let r2 = await prisma.quizRound.findFirst({
+      where: { roomId: testRoomId, roundNumber: 2 },
+    });
+    if (!r2) {
+      r2 = await prisma.quizRound.create({
+        data: {
+          roomId: testRoomId,
+          roundNumber: 2,
+          roundName: 'DEBUGNOVA',
+          status: 'CREATED',
+          durationMinutes: 15,
+        },
+      });
+    }
+    testRound2Id = r2.id;
+
+    // Clean up any existing questions in test rounds
+    await prisma.option.deleteMany({
+      where: { question: { roundId: { in: [testRound1Id, testRound2Id] } } },
+    });
+    await prisma.question.deleteMany({
+      where: { roundId: { in: [testRound1Id, testRound2Id] } },
+    });
+  });
+
+  afterAll(async () => {
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    if (testRoomId) {
+      await prisma.option.deleteMany({
+        where: { question: { roundId: { in: [testRound1Id, testRound2Id] } } },
+      });
+      await prisma.question.deleteMany({
+        where: { roundId: { in: [testRound1Id, testRound2Id] } },
+      });
+      await prisma.quizRound.deleteMany({
+        where: { roomId: testRoomId },
+      });
+      await prisma.quizRoom.deleteMany({
+        where: { id: testRoomId },
+      });
+    }
+  });
+
+  it('1. GET /api/questions/excel-template: rejects unauthenticated requests with 401', async () => {
+    const res = await fetch(`${baseUrl}/api/questions/excel-template`);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain('Authentication token required');
+  });
+
+  it('2. GET /api/questions/excel-template: rejects participant requests with 403 Forbidden', async () => {
+    const res = await fetch(`${baseUrl}/api/questions/excel-template`, {
+      headers: {
+        Authorization: `Bearer ${participantToken}`,
+      },
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain('Admin privilege required');
+  });
+
+  it('3. GET /api/questions/excel-template: allows Admin to download XLSX template with correct headers and valid workbook', async () => {
+    const res = await fetch(`${baseUrl}/api/questions/excel-template`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    expect(res.headers.get('content-disposition')).toContain('FOSSFURY26_Question_Template.xlsx');
+
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    expect(buffer.length).toBeGreaterThan(1000);
+
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    expect(wb.SheetNames).toContain('Questions');
+    expect(wb.SheetNames).toContain('Instructions');
+  });
+
+  it('4. POST /api/questions/excel-preview: enforces authentication and parses uploaded file', async () => {
+    // 4a. Unauthenticated check
+    const unauthRes = await fetch(`${baseUrl}/api/questions/excel-preview`, {
+      method: 'POST',
+    });
+    expect(unauthRes.status).toBe(401);
+
+    // 4b. Participant check
+    const partRes = await fetch(`${baseUrl}/api/questions/excel-preview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${participantToken}` },
+    });
+    expect(partRes.status).toBe(403);
+
+    // 4c. Admin valid upload check using FormData
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer'],
+      ['HTTP Preview Test Q1', 'Opt A', 'Opt B', 'Opt C', 'Opt D', 'A'],
+      ['HTTP Preview Test Q2', 'Opt A', 'Opt B', 'Opt C', 'Opt D', 'B'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Questions');
+    const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const blob = new Blob([xlsxBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const formData = new FormData();
+    formData.append('file', blob, 'questions.xlsx');
+    formData.append('roundId', testRound1Id);
+
+    const adminRes = await fetch(`${baseUrl}/api/questions/excel-preview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: formData,
+    });
+
+    expect(adminRes.status).toBe(200);
+    const body = await adminRes.json();
+    expect(body.success).toBe(true);
+    expect(body.preview.validCount).toBe(2);
+    expect(body.preview.rows.length).toBe(2);
+  });
+
+  it('5. POST /api/questions/excel-import: enforces authentication and transactionally commits questions', async () => {
+    // 5a. Unauthenticated check
+    const unauthRes = await fetch(`${baseUrl}/api/questions/excel-import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId: testRound1Id, questions: [] }),
+    });
+    expect(unauthRes.status).toBe(401);
+
+    // 5b. Participant check
+    const partRes = await fetch(`${baseUrl}/api/questions/excel-import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${participantToken}`,
+      },
+      body: JSON.stringify({ roundId: testRound1Id, questions: [] }),
+    });
+    expect(partRes.status).toBe(403);
+
+    // 5c. Admin valid import into Round 1
+    const importPayload = {
+      roundId: testRound1Id,
+      questions: [
+        {
+          questionText: 'Round 1 Excel Question 1',
+          optionA: 'Opt A',
+          optionB: 'Opt B',
+          optionC: 'Opt C',
+          optionD: 'Opt D',
+          answer: 'A',
+        },
+        {
+          questionText: 'Round 1 Excel Question 2',
+          optionA: 'Opt A',
+          optionB: 'Opt B',
+          optionC: 'Opt C',
+          optionD: 'Opt D',
+          answer: 'D',
+        },
+      ],
+    };
+
+    const adminRes = await fetch(`${baseUrl}/api/questions/excel-import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify(importPayload),
+    });
+
+    expect(adminRes.status).toBe(200);
+    const body = await adminRes.json();
+    expect(body.success).toBe(true);
+    expect(body.count).toBe(2);
+    expect(body.roundNumber).toBe(1);
+
+    // Verify questions in DB for Round 1
+    const r1Questions = await prisma.question.findMany({
+      where: { roundId: testRound1Id },
+      include: { options: { orderBy: { optionLetter: 'asc' } } },
+    });
+    expect(r1Questions.length).toBe(2);
+    expect(r1Questions[0].questionNumber).toBe(1);
+    expect(r1Questions[1].questionNumber).toBe(2);
+    expect(r1Questions[0].options.map((o) => o.optionLetter)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('6. Supports Round 2 (DEBUGNOVA) import without affecting Round 1', async () => {
+    const importPayload = {
+      roundId: testRound2Id,
+      questions: [
+        {
+          questionText: 'Round 2 Excel Debug Question 1',
+          optionA: 'Bug A',
+          optionB: 'Bug B',
+          optionC: 'Bug C',
+          optionD: 'Bug D',
+          answer: 'C',
+        },
+      ],
+    };
+
+    const adminRes = await fetch(`${baseUrl}/api/questions/excel-import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify(importPayload),
+    });
+
+    expect(adminRes.status).toBe(200);
+    const body = await adminRes.json();
+    expect(body.count).toBe(1);
+    expect(body.roundNumber).toBe(2);
+
+    // Confirm Round 1 still has exactly 2 questions and Round 2 has exactly 1 question
+    const r1Count = await prisma.question.count({ where: { roundId: testRound1Id } });
+    const r2Count = await prisma.question.count({ where: { roundId: testRound2Id } });
+    expect(r1Count).toBe(2);
+    expect(r2Count).toBe(1);
+  });
+
+  it('7. Verifies manual question creation and Excel import coexist with sequential numbering', async () => {
+    // Current Round 1 has questions 1 & 2.
+    // Create a manual question in Round 1
+    const manualQ1 = await prisma.question.create({
+      data: {
+        roundId: testRound1Id,
+        questionNumber: 3,
+        questionText: 'Manual Question 3',
+        options: {
+          create: [
+            { optionLetter: 'A', optionText: 'Opt A', isCorrect: true },
+            { optionLetter: 'B', optionText: 'Opt B', isCorrect: false },
+            { optionLetter: 'C', optionText: 'Opt C', isCorrect: false },
+            { optionLetter: 'D', optionText: 'Opt D', isCorrect: false },
+          ],
+        },
+      },
+    });
+    expect(manualQ1.questionNumber).toBe(3);
+
+    // Now import another question via Excel into Round 1
+    const importRes = await fetch(`${baseUrl}/api/questions/excel-import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        roundId: testRound1Id,
+        questions: [
+          {
+            questionText: 'Imported Question 4',
+            optionA: 'Opt A',
+            optionB: 'Opt B',
+            optionC: 'Opt C',
+            optionD: 'Opt D',
+            answer: 'B',
+          },
+        ],
+      }),
+    });
+    expect(importRes.status).toBe(200);
+
+    // Now create another manual question in Round 1
+    const highest = await prisma.question.findFirst({
+      where: { roundId: testRound1Id },
+      orderBy: { questionNumber: 'desc' },
+    });
+    expect(highest?.questionNumber).toBe(4);
+
+    const manualQ2 = await prisma.question.create({
+      data: {
+        roundId: testRound1Id,
+        questionNumber: (highest?.questionNumber || 4) + 1,
+        questionText: 'Manual Question 5',
+        options: {
+          create: [
+            { optionLetter: 'A', optionText: 'Opt A', isCorrect: false },
+            { optionLetter: 'B', optionText: 'Opt B', isCorrect: true },
+            { optionLetter: 'C', optionText: 'Opt C', isCorrect: false },
+            { optionLetter: 'D', optionText: 'Opt D', isCorrect: false },
+          ],
+        },
+      },
+    });
+
+    expect(manualQ2.questionNumber).toBe(5);
+
+    // Confirm all 5 questions in Round 1 have exact sequence 1, 2, 3, 4, 5
+    const allR1Questions = await prisma.question.findMany({
+      where: { roundId: testRound1Id },
+      orderBy: { questionNumber: 'asc' },
+    });
+    expect(allR1Questions.map((q) => q.questionNumber)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
