@@ -22,6 +22,19 @@ interface Round2CompetitorSlot {
   status: string;
 }
 
+function formatTeamName(teamNumber: number, teamName?: string): string {
+  const fallback = `Team ${String(teamNumber).padStart(2, '0')}`;
+  if (!teamName || !teamName.trim()) {
+    return fallback;
+  }
+  const trimmed = teamName.trim();
+  const dupRegex = new RegExp(`^Team\\s*0*${teamNumber}\\s+Team\\s*0*${teamNumber}$`, 'i');
+  if (dupRegex.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+}
+
 export const TeamLogin: React.FC<{ onSwitchToAdmin: () => void }> = ({ onSwitchToAdmin }) => {
   const { login } = useAuth();
   const [step, setStep] = useState<'room' | 'select_slot'>('room');
@@ -399,7 +412,7 @@ export const TeamLogin: React.FC<{ onSwitchToAdmin: () => void }> = ({ onSwitchT
                           {comp.competitorCode} — {comp.playerName}
                         </div>
                         <div style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: 600, marginTop: '0.25rem', marginBottom: '0.6rem' }}>
-                          Team {String(comp.originalTeamNumber).padStart(2, '0')} {comp.originalTeamName}
+                          {formatTeamName(comp.originalTeamNumber, comp.originalTeamName)}
                         </div>
 
                         <div>
@@ -584,7 +597,7 @@ export const TeamLogin: React.FC<{ onSwitchToAdmin: () => void }> = ({ onSwitchT
                       Join as {selectedCompetitor.competitorCode} — {selectedCompetitor.playerName}
                     </h3>
                     <p style={{ color: '#64748B', fontSize: '0.85rem', marginTop: '0.35rem', marginBottom: 0 }}>
-                      Original Team: Team {String(selectedCompetitor.originalTeamNumber).padStart(2, '0')} {selectedCompetitor.originalTeamName}
+                      Original Team: {formatTeamName(selectedCompetitor.originalTeamNumber, selectedCompetitor.originalTeamName)}
                     </p>
                   </div>
                   <button

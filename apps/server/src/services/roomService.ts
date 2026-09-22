@@ -8,7 +8,13 @@ export async function createOrGetRoom(roomCode?: string, title: string = 'SFOSS 
       where: { roomCode: code },
       include: { rounds: { orderBy: { roundNumber: 'asc' } } },
     });
-    if (existing) return existing;
+    if (existing) {
+      await prisma.quizRound.updateMany({
+        where: { roomId: existing.id, marksPerCorrect: { not: 2.0 } },
+        data: { marksPerCorrect: 2.0, penaltyPerWrong: -1.0 },
+      });
+      return existing;
+    }
   }
 
   // Look for existing main non-test room first
@@ -16,6 +22,13 @@ export async function createOrGetRoom(roomCode?: string, title: string = 'SFOSS 
     where: { isTestRoom: false },
     include: { rounds: { orderBy: { roundNumber: 'asc' } } },
   });
+
+  if (room) {
+    await prisma.quizRound.updateMany({
+      where: { roomId: room.id, marksPerCorrect: { not: 2.0 } },
+      data: { marksPerCorrect: 2.0, penaltyPerWrong: -1.0 },
+    });
+  }
 
   if (!room) {
     const initialCode = (roomCode || 'FURY20').toUpperCase();
@@ -30,7 +43,7 @@ export async function createOrGetRoom(roomCode?: string, title: string = 'SFOSS 
               roundNumber: 1,
               roundName: 'SYNTRACE',
               durationMinutes: 30,
-              marksPerCorrect: 1.0,
+              marksPerCorrect: 2.0,
               penaltyPerWrong: -1.0,
               status: RoundStatus.CREATED,
             },
@@ -38,7 +51,7 @@ export async function createOrGetRoom(roomCode?: string, title: string = 'SFOSS 
               roundNumber: 2,
               roundName: 'DEBUGNOVA',
               durationMinutes: 45,
-              marksPerCorrect: 1.0,
+              marksPerCorrect: 2.0,
               penaltyPerWrong: -1.0,
               status: RoundStatus.CREATED,
             },

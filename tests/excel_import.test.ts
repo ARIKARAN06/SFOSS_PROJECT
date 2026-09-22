@@ -85,19 +85,20 @@ describe('Excel Question Import Service', () => {
     const questionsSheet = workbook.Sheets['Questions'];
     const rows = XLSX.utils.sheet_to_json<string[]>(questionsSheet, { header: 1 });
     
-    // Check header row
+    // Check header row (7 columns)
     const headers = rows[0];
-    expect(headers).toEqual(['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer']);
+    expect(headers).toEqual(['Question', 'Coding', 'Op1', 'Op2', 'Op3', 'Op4', 'Answer']);
 
     // Check that sample questions exist
     expect(rows.length).toBeGreaterThan(2);
     const sampleRow = rows[1];
     expect(sampleRow[0]).toBeTruthy(); // Question text
-    expect(sampleRow[1]).toBeTruthy(); // Option A
-    expect(sampleRow[2]).toBeTruthy(); // Option B
-    expect(sampleRow[3]).toBeTruthy(); // Option C
-    expect(sampleRow[4]).toBeTruthy(); // Option D
-    expect(['A', 'B', 'C', 'D']).toContain(sampleRow[5]); // Valid Answer
+    expect(sampleRow[1]).toBeTruthy(); // Coding snippet
+    expect(sampleRow[2]).toBeTruthy(); // Op1
+    expect(sampleRow[3]).toBeTruthy(); // Op2
+    expect(sampleRow[4]).toBeTruthy(); // Op3
+    expect(sampleRow[5]).toBeTruthy(); // Op4
+    expect(['A', 'B', 'C', 'D']).toContain(sampleRow[6]); // Valid Answer
   });
 
   it('2. Parses valid Excel workbook correctly with normalized answers', async () => {
@@ -312,25 +313,26 @@ describe('Excel Question Import Service', () => {
     expect(totalCount).toBe(4);
   });
 
-  it('8. Verifies template workbook content: 2 sheets, exact 6 headers, sample questions, and valid answers', () => {
+  it('8. Verifies template workbook content: 2 sheets, exact 7 headers, sample questions, and valid answers', () => {
     const buffer = generateExcelTemplate();
     const wb = XLSX.read(buffer, { type: 'buffer' });
     expect(wb.SheetNames).toEqual(['Questions', 'Instructions']);
 
     const qSheet = wb.Sheets['Questions'];
     const rows = XLSX.utils.sheet_to_json<string[]>(qSheet, { header: 1 });
-    expect(rows[0]).toEqual(['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer']);
+    expect(rows[0]).toEqual(['Question', 'Coding', 'Op1', 'Op2', 'Op3', 'Op4', 'Answer']);
 
-    // Check sample rows (rows 1, 2, 3)
+    // Check sample rows (rows 1, 2, 3, 4)
     expect(rows.length).toBeGreaterThanOrEqual(4);
     for (let i = 1; i <= 3; i++) {
       const row = rows[i];
       expect(row[0]).toBeTruthy(); // Question text
-      expect(row[1]).toBeTruthy(); // Option A
-      expect(row[2]).toBeTruthy(); // Option B
-      expect(row[3]).toBeTruthy(); // Option C
-      expect(row[4]).toBeTruthy(); // Option D
-      expect(['A', 'B', 'C', 'D']).toContain(row[5]); // Correct answer letter
+      // Row 1 has coding snippet, Row 2 has empty coding snippet
+      expect(row[2]).toBeTruthy(); // Op1
+      expect(row[3]).toBeTruthy(); // Op2
+      expect(row[4]).toBeTruthy(); // Op3
+      expect(row[5]).toBeTruthy(); // Op4
+      expect(['A', 'B', 'C', 'D']).toContain(row[6]); // Correct answer letter
     }
 
     // Check Instructions sheet
@@ -339,7 +341,92 @@ describe('Excel Question Import Service', () => {
     const flattened = instRows.flat().join(' ');
     expect(flattened).toContain('FOSSFURY 26');
     expect(flattened).toContain('Question');
+    expect(flattened).toContain('Coding');
     expect(flattened).toContain('Answer');
+  });
+
+  it('9. Supports 7 columns with multiline code snippets in Coding column preserving indentation', async () => {
+    const pythonCode = 'def calculate(nums):\n    total = 0\n    for n in nums:\n        total += n\n    return total';
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ['Question', 'Coding', 'Op1', 'Op2', 'Op3', 'Op4', 'Answer'],
+      ['What does calculate([1, 2, 3]) return?', pythonCode, '3', '6', '1', 'Error', 'B'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Questions');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const preview = await parseAndValidateExcel(buffer, 'code_test.xlsx', testRoundId);
+    expect(preview.validCount).toBe(1);
+    expect(preview.rows[0].status).toBe('VALID');
+    expect(preview.rows[0].questionText).toBe('What does calculate([1, 2, 3]) return?');
+    expect(preview.rows[0].codeSnippet).toBe(pythonCode);
+    expect(preview.rows[0].codeSnippet).toContain('    total = 0'); // indentation preserved
+  });
+
+  it('10. Treats empty or EMPTY in Coding column as undefined (no code snippet)', async () => {
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ['Question', 'Coding', 'Op1', 'Op2', 'Op3', 'Op4', 'Answer'],
+      ['Conceptual question with blank coding cell', '', 'Choice 1', 'Choice 2', 'Choice 3', 'Choice 4', 'A'],
+      ['Conceptual question with EMPTY keyword', 'EMPTY', 'Choice 1', 'Choice 2', 'Choice 3', 'Choice 4', 'C'],
+      ['Conceptual question with whitespace-only coding', '   \n  \t ', 'Choice 1', 'Choice 2', 'Choice 3', 'Choice 4', 'D'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Questions');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const preview = await parseAndValidateExcel(buffer, 'empty_test.xlsx', testRoundId);
+    expect(preview.validCount).toBe(3);
+    expect(preview.rows[0].codeSnippet).toBeUndefined();
+    expect(preview.rows[1].codeSnippet).toBeUndefined();
+    expect(preview.rows[2].codeSnippet).toBeUndefined();
+  });
+
+  it('11. Retains backwards compatibility with legacy 6-column sheets', async () => {
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer'],
+      ['Legacy 6-column question?', 'Choice A', 'Choice B', 'Choice C', 'Choice D', 'A'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Questions');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const preview = await parseAndValidateExcel(buffer, 'legacy_test.xlsx', testRoundId);
+    expect(preview.validCount).toBe(1);
+    expect(preview.rows[0].status).toBe('VALID');
+    expect(preview.rows[0].questionText).toBe('Legacy 6-column question?');
+    expect(preview.rows[0].codeSnippet).toBeUndefined();
+    expect(preview.rows[0].optionA).toBe('Choice A');
+    expect(preview.rows[0].optionB).toBe('Choice B');
+    expect(preview.rows[0].optionC).toBe('Choice C');
+    expect(preview.rows[0].optionD).toBe('Choice D');
+    expect(preview.rows[0].answer).toBe('A');
+  });
+
+  it('12. Commits questions with codeSnippet into the database Question table', async () => {
+    const cCode = '#include <stdio.h>\nint main() {\n    printf("Hi");\n    return 0;\n}';
+    const items = [
+      {
+        questionText: 'What is the output of this C program?',
+        codeSnippet: cCode,
+        optionA: 'Hi',
+        optionB: 'Error',
+        optionC: 'Nothing',
+        optionD: 'Garbage',
+        answer: 'A' as const,
+      },
+    ];
+
+    const result = await importExcelQuestions(testRoundId, items);
+    expect(result.success).toBe(true);
+
+    const savedQ = await prisma.question.findFirst({
+      where: { roundId: testRoundId, questionText: 'What is the output of this C program?' },
+    });
+    expect(savedQ).not.toBeNull();
+    expect(savedQ?.codeSnippet).toContain('printf("Hi")');
   });
 });
 

@@ -13,7 +13,7 @@ export const TEAM_MEMBERS_COUNT = 2;
 export const ROUND_1_NAME = 'SYNTRACE';
 export const ROUND_2_NAME = 'DEBUGNOVA';
 
-export const MARKS_PER_CORRECT = 1.0;
+export const MARKS_PER_CORRECT = 2.0;
 export const PENALTY_PER_WRONG = -1.0;
 export const UNANSWERED_SCORE = 0.0;
 

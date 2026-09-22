@@ -24,6 +24,38 @@ describe('Round System & Qualification Tests', () => {
     expect(displayText).toBe('01-A — Arjun — Team 01 Code Warriors');
   });
 
+  it('should format Round 2 competitor card team name without duplicates and with fallback', () => {
+    function formatTeamName(teamNumber: number, teamName?: string): string {
+      const fallback = `Team ${String(teamNumber).padStart(2, '0')}`;
+      if (!teamName || !teamName.trim()) {
+        return fallback;
+      }
+      const trimmed = teamName.trim();
+      const dupRegex = new RegExp(`^Team\\s*0*${teamNumber}\\s+Team\\s*0*${teamNumber}$`, 'i');
+      if (dupRegex.test(trimmed)) {
+        return fallback;
+      }
+      return trimmed;
+    }
+
+    // Case 1: teamName is already "Team 01" -> displays "Team 01" exactly once
+    expect(formatTeamName(1, 'Team 01')).toBe('Team 01');
+
+    // Case 2: teamName has duplicate "Team 01 Team 01" -> deduplicated to "Team 01"
+    expect(formatTeamName(1, 'Team 01 Team 01')).toBe('Team 01');
+
+    // Case 3: teamName is empty or undefined -> fallback to "Team 01"
+    expect(formatTeamName(1, '')).toBe('Team 01');
+    expect(formatTeamName(1, undefined)).toBe('Team 01');
+    expect(formatTeamName(1, '   ')).toBe('Team 01');
+
+    // Case 4: teamName is custom "Code Warriors" -> displays "Code Warriors"
+    expect(formatTeamName(1, 'Code Warriors')).toBe('Code Warriors');
+
+    // Case 5: teamName is "Team 01 Code Warriors" -> displays exactly once
+    expect(formatTeamName(1, 'Team 01 Code Warriors')).toBe('Team 01 Code Warriors');
+  });
+
   it('should require both Player A and Player B names for manual qualification', () => {
     function validateQualification(player1Name?: string, player2Name?: string) {
       const p1 = player1Name ? player1Name.trim() : '';

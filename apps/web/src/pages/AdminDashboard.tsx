@@ -971,6 +971,126 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* ADMIN LIVE TIMERS WIDGET (ROUND 1 SYNTRACE & ROUND 2 DEBUGNOVA) */}
+      <div
+        style={{
+          background: '#1E1B4B',
+          border: '1px solid #3730A3',
+          borderRadius: '10px',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.5rem',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '1.25rem',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        }}
+      >
+        {[1, 2].map((roundNum) => {
+          const r = room?.rounds?.find((rnd: any) => rnd.roundNumber === roundNum);
+          const roundName = r?.roundName || (roundNum === 1 ? 'SYNTRACE' : 'DEBUGNOVA');
+          const isPreStart = r?.status === 'PRE_START';
+          const isActive = r?.status === 'ROUND_ACTIVE';
+          const isCompleted =
+            r?.status === 'ROUND_ENDED' ||
+            r?.status === 'SCORING_COMPLETE' ||
+            r?.status === 'RESULTS_PUBLISHED';
+
+          let timerDisplay = '00:00';
+          let statusBadge = 'NOT STARTED';
+          let badgeBg = '#475569';
+          let timerColor = '#94A3B8';
+          let subtitle = r ? `Duration: ${r.durationMinutes} mins` : 'Round not initialized';
+
+          if (isPreStart) {
+            timerDisplay = formatCountdown(r.scheduledAnswerStartAt);
+            statusBadge = 'PRE-START ACTIVE';
+            badgeBg = '#D97706';
+            timerColor = '#FDE68A';
+            subtitle = 'Answering countdown active';
+          } else if (isActive) {
+            timerDisplay = formatCountdown(r.endTime);
+            statusBadge = 'QUIZ ACTIVE';
+            badgeBg = '#059669';
+            timerColor = '#6EE7B7';
+            subtitle = 'Quiz countdown in progress';
+          } else if (isCompleted) {
+            timerDisplay = '00:00';
+            statusBadge = r?.status === 'RESULTS_PUBLISHED' ? 'RESULTS PUBLISHED' : 'COMPLETED';
+            badgeBg = '#334155';
+            timerColor = '#CBD5E1';
+            subtitle = 'Round Completed';
+          }
+
+          return (
+            <div
+              key={roundNum}
+              style={{
+                background: '#2E2B6B',
+                borderRadius: '8px',
+                padding: '0.85rem 1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                border: isActive
+                  ? '2px solid #10B981'
+                  : isPreStart
+                  ? '2px solid #F58220'
+                  : '1px solid #4338CA',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <span style={{ color: '#FFFFFF', fontWeight: 800, fontSize: '0.95rem', letterSpacing: '0.5px' }}>
+                    ROUND {roundNum}: {roundName.toUpperCase()}
+                  </span>
+                  <span
+                    style={{
+                      background: badgeBg,
+                      color: '#FFFFFF',
+                      fontSize: '0.65rem',
+                      fontWeight: 800,
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '4px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {statusBadge}
+                  </span>
+                </div>
+                <div style={{ color: '#A5B4FC', fontSize: '0.75rem' }}>
+                  {subtitle}
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'right' }}>
+                <div
+                  style={{
+                    fontSize: '0.65rem',
+                    color: '#C7D2FE',
+                    textTransform: 'uppercase',
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {isPreStart ? 'STARTS IN' : isActive ? 'TIME LEFT' : isCompleted ? 'ELAPSED' : 'READY'}
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: '1.75rem',
+                    fontWeight: 900,
+                    color: timerColor,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {timerDisplay}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <button className={`btn ${activeTab === 'rounds' ? 'btn-primary' : 'btn-outline'}`} style={{ color: '#FFF' }} onClick={() => setActiveTab('rounds')}>
@@ -1150,7 +1270,7 @@ export const AdminDashboard: React.FC = () => {
                         )}
                       </div>
                       <p style={{ color: '#64748B', fontSize: '0.85rem', marginTop: '0.3rem' }}>
-                        Status: <strong style={{ color: r.status === 'ROUND_ACTIVE' ? '#176B5B' : r.status === 'PRE_START' ? '#F58220' : '#25256F' }}>{r.status}</strong> | Duration: {r.durationMinutes} mins | Pre-Start: {r.preStartDurationMinutes || 0} mins | Scheme: +1 / -1 / 0
+                        Status: <strong style={{ color: r.status === 'ROUND_ACTIVE' ? '#176B5B' : r.status === 'PRE_START' ? '#F58220' : '#25256F' }}>{r.status}</strong> | Duration: {r.durationMinutes} mins | Pre-Start: {r.preStartDurationMinutes || 0} mins | Scheme: +2 / -1 / 0
                       </p>
 
                       {r.status === 'PRE_START' && (
@@ -1160,6 +1280,28 @@ export const AdminDashboard: React.FC = () => {
                           </span>
                           <span style={{ color: '#25256F', fontWeight: 800, fontSize: '0.9rem' }}>
                             ANSWERING STARTS IN: {formatCountdown(r.scheduledAnswerStartAt)}
+                          </span>
+                        </div>
+                      )}
+
+                      {r.status === 'ROUND_ACTIVE' && (
+                        <div style={{ background: '#ECFDF5', border: '1px solid #10B981', padding: '0.5rem 0.8rem', borderRadius: '6px', marginTop: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span className="status-pill status-active" style={{ background: '#10B981', color: '#FFF', fontSize: '0.75rem' }}>
+                            ROUND STATUS: ACTIVE (QUIZ IN PROGRESS)
+                          </span>
+                          <span style={{ color: '#065F46', fontWeight: 900, fontSize: '1rem', fontFamily: 'monospace' }}>
+                            TIME REMAINING: {formatCountdown(r.endTime)}
+                          </span>
+                        </div>
+                      )}
+
+                      {(r.status === 'ROUND_ENDED' || r.status === 'SCORING_COMPLETE' || r.status === 'RESULTS_PUBLISHED') && (
+                        <div style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', padding: '0.5rem 0.8rem', borderRadius: '6px', marginTop: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span className="status-pill" style={{ background: '#64748B', color: '#FFF', fontSize: '0.75rem' }}>
+                            ROUND STATUS: {r.status}
+                          </span>
+                          <span style={{ color: '#334155', fontWeight: 800, fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                            TIME REMAINING: 00:00 (Round Completed)
                           </span>
                         </div>
                       )}
@@ -1542,14 +1684,15 @@ export const AdminDashboard: React.FC = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                       <thead style={{ position: 'sticky', top: 0, background: '#25256F', color: '#FFFFFF', zIndex: 10 }}>
                         <tr style={{ textAlign: 'left' }}>
-                          <th style={{ padding: '0.65rem 0.75rem', width: '55px' }}>Row</th>
-                          <th style={{ padding: '0.65rem 0.75rem', width: '35%' }}>Question</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '50px' }}>Row</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '28%' }}>Question</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '22%' }}>Coding</th>
                           <th style={{ padding: '0.65rem 0.75rem' }}>Option A</th>
                           <th style={{ padding: '0.65rem 0.75rem' }}>Option B</th>
                           <th style={{ padding: '0.65rem 0.75rem' }}>Option C</th>
                           <th style={{ padding: '0.65rem 0.75rem' }}>Option D</th>
-                          <th style={{ padding: '0.65rem 0.75rem', width: '70px', textAlign: 'center' }}>Ans</th>
-                          <th style={{ padding: '0.65rem 0.75rem', width: '130px' }}>Status</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '60px', textAlign: 'center' }}>Ans</th>
+                          <th style={{ padding: '0.65rem 0.75rem', width: '120px' }}>Status</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1573,6 +1716,32 @@ export const AdminDashboard: React.FC = () => {
                                 <div style={{ whiteSpace: 'pre-wrap', maxHeight: '80px', overflowY: 'auto' }}>
                                   {row.questionText}
                                 </div>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.75rem' }}>
+                                {row.codeSnippet ? (
+                                  <div style={{ maxHeight: '80px', overflowY: 'auto' }}>
+                                    <pre
+                                      className="code-snippet"
+                                      style={{
+                                        margin: 0,
+                                        fontSize: '0.75rem',
+                                        padding: '0.35rem 0.5rem',
+                                        background: '#0F172A',
+                                        color: '#38BDF8',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'pre-wrap',
+                                        fontFamily: 'monospace',
+                                        lineHeight: 1.35,
+                                      }}
+                                    >
+                                      {row.codeSnippet}
+                                    </pre>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: '#94A3B8', fontSize: '0.75rem', fontStyle: 'italic' }}>
+                                    None
+                                  </span>
+                                )}
                               </td>
                               <td style={{ padding: '0.65rem 0.75rem', color: '#334155' }}>{row.optionA}</td>
                               <td style={{ padding: '0.65rem 0.75rem', color: '#334155' }}>{row.optionB}</td>
@@ -2546,8 +2715,11 @@ export const AdminDashboard: React.FC = () => {
         <div className="anti-cheat-modal">
           <div className="anti-cheat-box" style={{ borderColor: '#34349A', animation: 'none' }}>
             <h3 style={{ color: '#25256F', marginBottom: '1rem' }}>Calculate Results Confirmation</h3>
-            <p style={{ color: '#555', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
-              Calculate official scores and generate ranks for this round? This will compare all submissions against master correct answers using score DESC, submission time ASC, and team/competitor code ASC.
+            <p style={{ color: '#555', marginBottom: '0.75rem', fontSize: '0.95rem' }}>
+              Calculate official scores and generate ranks for this round using the official marking scheme (<strong>+2</strong> for Correct, <strong>-1</strong> for Wrong, <strong>0</strong> for Unanswered).
+            </p>
+            <p style={{ color: '#64748B', marginBottom: '1.5rem', fontSize: '0.85rem' }}>
+              Ranking tie-breakers: Score DESC &rarr; Submission Time ASC &rarr; Team/Competitor Code ASC. Recalculation applies the +2/-1/0 scheme consistently without overwriting published results or finalized qualifications.
             </p>
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowConfirmCalc(false)}>
@@ -2668,6 +2840,7 @@ export const AdminDashboard: React.FC = () => {
                       <div><span style={{ color: '#64748B' }}>ORIGINAL TEAM NAME:</span> <strong style={{ color: '#171717' }}>{inspectPaper.originalTeamName || inspectPaper.competitor?.originalTeamName}</strong></div>
                       <div><span style={{ color: '#64748B' }}>ROUND:</span> <strong style={{ color: '#25256F' }}>{inspectPaper.roundName || 'DEBUGNOVA'}</strong></div>
                       <div><span style={{ color: '#64748B' }}>SCORE:</span> <strong style={{ color: '#25256F', fontSize: '1.05rem' }}>{inspectPaper.score} pts</strong> ({inspectPaper.rank ? `Rank #${inspectPaper.rank}` : 'Unranked / DQ'})</div>
+                      <div><span style={{ color: '#64748B' }}>BREAKDOWN:</span> <span><strong style={{ color: '#176B5B' }}>{inspectPaper.totalCorrect ?? 0} C (+2)</strong> | <strong style={{ color: '#D93838' }}>{inspectPaper.totalWrong ?? 0} W (-1)</strong> | <strong style={{ color: '#64748B' }}>{inspectPaper.totalUnanswered ?? 0} U (0)</strong></span></div>
                       <div><span style={{ color: '#64748B' }}>SUBMITTED AT:</span> <strong style={{ color: '#171717' }}>{inspectPaper.submittedAt ? new Date(inspectPaper.submittedAt).toLocaleTimeString() : 'N/A'}</strong></div>
                       <div><span style={{ color: '#64748B' }}>STATUS:</span> <strong style={{ color: inspectPaper.isDisqualified ? '#D93838' : '#176B5B' }}>{inspectPaper.isDisqualified ? `DISQUALIFIED (${inspectPaper.disqualifiedReason || 'Rule violation'})` : 'ELIGIBLE'}</strong></div>
                       <div><span style={{ color: '#64748B' }}>ANTI-CHEAT VIOLATIONS:</span> <strong style={{ color: (inspectPaper.antiCheatViolationCount || 0) > 0 ? '#D93838' : '#176B5B' }}>{inspectPaper.antiCheatViolationCount ?? 0} logged</strong></div>
@@ -2688,6 +2861,7 @@ export const AdminDashboard: React.FC = () => {
                       <div><span style={{ color: '#64748B' }}>TEAM NAME:</span> <strong style={{ color: '#171717' }}>{inspectPaper.team?.teamName}</strong></div>
                       <div><span style={{ color: '#64748B' }}>ROUND:</span> <strong style={{ color: '#25256F' }}>{inspectPaper.roundName || 'SYNTRACE'}</strong></div>
                       <div><span style={{ color: '#64748B' }}>SCORE:</span> <strong style={{ color: '#25256F', fontSize: '1.05rem' }}>{inspectPaper.score} pts</strong> ({inspectPaper.rank ? `Rank #${inspectPaper.rank}` : 'Unranked'})</div>
+                      <div><span style={{ color: '#64748B' }}>BREAKDOWN:</span> <span><strong style={{ color: '#176B5B' }}>{inspectPaper.totalCorrect ?? 0} C (+2)</strong> | <strong style={{ color: '#D93838' }}>{inspectPaper.totalWrong ?? 0} W (-1)</strong> | <strong style={{ color: '#64748B' }}>{inspectPaper.totalUnanswered ?? 0} U (0)</strong></span></div>
                       <div><span style={{ color: '#64748B' }}>SUBMITTED AT:</span> <strong style={{ color: '#171717' }}>{inspectPaper.submittedAt ? new Date(inspectPaper.submittedAt).toLocaleTimeString() : 'N/A'}</strong></div>
                     </div>
                   </div>
@@ -2702,7 +2876,7 @@ export const AdminDashboard: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                     <strong style={{ color: '#171717' }}>Q{item.questionNumber}: {item.questionText}</strong>
                     <span className={`status-pill ${item.status === 'CORRECT' ? 'status-active' : 'status-ended'}`} style={{ background: item.status === 'CORRECT' ? '#176B5B' : item.status === 'WRONG' ? '#D93838' : '#94A3B8', color: '#FFF' }}>
-                      {item.status}
+                      {item.status} ({item.status === 'CORRECT' ? '+2' : item.status === 'WRONG' ? '-1' : '0'})
                     </span>
                   </div>
 

@@ -99,7 +99,7 @@ model QuizRound {
   durationMinutes Int                  @default(30)
   preStartDurationMinutes Int          @default(0)
   scheduledAnswerStartAt  DateTime?
-  marksPerCorrect Float                @default(1.0)
+  marksPerCorrect Float                @default(2.0)
   penaltyPerWrong Float                @default(-1.0)
   startTime       DateTime?
   endTime         DateTime?

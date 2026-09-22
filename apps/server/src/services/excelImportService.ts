@@ -50,54 +50,60 @@ function normalizeForComparison(text: string): string {
 
 /**
  * Generates an official Excel template (.xlsx) with Questions sheet and Instructions sheet.
+ * Columns: Question | Coding | Op1 | Op2 | Op3 | Op4 | Answer
  */
 export function generateExcelTemplate(): Buffer {
   const wb = XLSX.utils.book_new();
 
-  // 1. Questions Worksheet
+  // 1. Questions Worksheet (7 columns)
   const questionsData = [
-    ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer'],
+    ['Question', 'Coding', 'Op1', 'Op2', 'Op3', 'Op4', 'Answer'],
     [
-      'What is the result of 2 + 2 in Python?',
-      '3',
-      '4',
-      '5',
-      'Error',
+      'What is the output of the following Python list comprehension?',
+      'def filter_even_squares(nums):\n    return [x ** 2 for x in nums if x % 2 == 0]\n\nprint(filter_even_squares([1, 2, 3, 4]))',
+      '[4, 16]',
+      '[1, 9]',
+      '[2, 4]',
+      '[1, 4, 9, 16]',
+      'A',
+    ],
+    [
+      'Which transport layer protocol provides connection-oriented, reliable byte-stream transmission?',
+      '',
+      'UDP',
+      'TCP',
+      'ICMP',
+      'IP',
       'B',
     ],
     [
-      'Which language uses the JVM (Java Virtual Machine)?',
-      'Python',
-      'Java',
+      'What value is returned by the calculate() method when invoked?',
+      'public class Counter {\n    public static int calculate(int n) {\n        int sum = 0;\n        for (int i = 1; i <= n; i++) {\n            sum += i;\n        }\n        return sum;\n    }\n}',
+      '10',
+      '15',
+      '20',
+      '25',
+      'B',
+    ],
+    [
+      'What will be the output of the following C code snippet?',
+      '#include <stdio.h>\n\nint main() {\n    int a = 10;\n    int *p = &a;\n    *p = 50;\n    printf("%d", a);\n    return 0;\n}',
+      '10',
+      'Address of a',
+      '50',
+      'Compilation Error',
       'C',
-      'HTML',
-      'B',
-    ],
-    [
-      'What is the output of print(10 % 3)?',
-      '0',
-      '1',
-      '2',
-      '3',
-      'B',
-    ],
-    [
-      'What is the output of the following code?\nx = [1, 2, 3]\nprint(len(x))',
-      '2',
-      '3',
-      '4',
-      'IndexError',
-      'B',
     ],
   ];
 
   const wsQuestions = XLSX.utils.aoa_to_sheet(questionsData);
   wsQuestions['!cols'] = [
     { wch: 45 }, // Question
-    { wch: 20 }, // Option A
-    { wch: 20 }, // Option B
-    { wch: 20 }, // Option C
-    { wch: 20 }, // Option D
+    { wch: 45 }, // Coding
+    { wch: 20 }, // Op1
+    { wch: 20 }, // Op2
+    { wch: 20 }, // Op3
+    { wch: 20 }, // Op4
     { wch: 10 }, // Answer
   ];
   XLSX.utils.book_append_sheet(wb, wsQuestions, 'Questions');
@@ -106,32 +112,35 @@ export function generateExcelTemplate(): Buffer {
   const instructionsData = [
     ['FOSSFURY 26 — EXCEL QUESTION IMPORT TEMPLATE GUIDELINES'],
     [''],
-    ['1. REQUIRED COLUMNS:'],
-    ['   - Column A: Question (The full question text. Multiline text/code supported via Alt+Enter).'],
-    ['   - Column B: Option A (First choice text).'],
-    ['   - Column C: Option B (Second choice text).'],
-    ['   - Column D: Option C (Third choice text).'],
-    ['   - Column E: Option D (Fourth choice text).'],
-    ['   - Column F: Answer (The correct option letter. Must be A, B, C, or D).'],
+    ['1. EXACT COLUMN HEADERS (7 COLUMNS):'],
+    ['   - Column A: Question (Main question prompt or question statement)'],
+    ['   - Column B: Coding   (OPTIONAL: Code snippet or program block. Leave empty if question has no code)'],
+    ['   - Column C: Op1      (Option A choice text)'],
+    ['   - Column D: Op2      (Option B choice text)'],
+    ['   - Column E: Op3      (Option C choice text)'],
+    ['   - Column F: Op4      (Option D choice text)'],
+    ['   - Column G: Answer   (Correct option letter: A, B, C, or D)'],
     [''],
-    ['2. ANSWER FORMAT:'],
-    ['   - Must be single letter: A, B, C, or D (case-insensitive, e.g. "b" or "B").'],
-    ['   - Values like "Option A" or "1" or "E" are invalid and will be flagged.'],
+    ['2. CODING COLUMN GUIDELINES:'],
+    ['   - The Coding column is optional per question.'],
+    ['   - If a question has no code block, leave the cell empty or enter EMPTY.'],
+    ['   - Indentation, line breaks (Alt + Enter in Excel), quotes, and syntax symbols are strictly preserved.'],
+    ['   - If provided, it will be rendered in a dark code snippet block during the competition.'],
     [''],
-    ['3. CODE SNIPPETS & FORMATTING:'],
-    ['   - To insert line breaks inside a cell in Excel, press Alt + Enter.'],
-    ['   - Code snippets can be placed directly inside the Question column.'],
+    ['3. ANSWER FORMAT:'],
+    ['   - Must be a single letter: A, B, C, or D (case-insensitive, e.g. "a", "b", "A", "B").'],
+    ['   - Values like "Option 1" or full option text are invalid and will be flagged by the validator.'],
     [''],
-    ['4. SHEETS:'],
+    ['4. SHEETS & PREVIEW:'],
     ['   - Keep your questions in the "Questions" sheet.'],
-    ['   - This "Instructions" sheet will be automatically ignored by the importer.'],
+    ['   - The Admin dashboard allows you to preview and verify all rows before committing them to the database.'],
     [''],
-    ['5. SAVING:'],
-    ['   - Save the file as an Excel Workbook (.xlsx).'],
+    ['5. COMPATIBILITY:'],
+    ['   - Legacy sheets with 6 columns (Question, Option A, Option B, Option C, Option D, Answer) are also supported.'],
   ];
 
   const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData);
-  wsInstructions['!cols'] = [{ wch: 80 }];
+  wsInstructions['!cols'] = [{ wch: 85 }];
   XLSX.utils.book_append_sheet(wb, wsInstructions, 'Instructions');
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -188,9 +197,9 @@ export async function parseAndValidateExcel(
       const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
       if (rows.length > 0) {
         const headers = (rows[0] || []).map((h: any) => String(h).toLowerCase().replace(/\s+/g, ' ').trim());
-        const hasQuestion = headers.some((h) => h.includes('question'));
-        const hasOption = headers.some((h) => h.includes('option'));
-        const hasAnswer = headers.some((h) => h.includes('answer'));
+        const hasQuestion = headers.some((h) => h.includes('question') || h.includes('prompt'));
+        const hasOption = headers.some((h) => h.includes('option') || h.startsWith('op') || h.includes('choice'));
+        const hasAnswer = headers.some((h) => h.includes('answer') || h === 'ans');
         if (hasQuestion && hasOption && hasAnswer) {
           targetSheetName = name;
           break;
@@ -216,6 +225,7 @@ export async function parseAndValidateExcel(
   // Identify header indices
   let headerRowIndex = -1;
   let qCol = -1;
+  let codingCol = -1;
   let optACol = -1;
   let optBCol = -1;
   let optCCol = -1;
@@ -226,16 +236,32 @@ export async function parseAndValidateExcel(
     const row = rawRows[i] || [];
     const normalizedHeaders = row.map((c: any) => String(c).toLowerCase().replace(/\s+/g, ' ').trim());
 
-    const qIdx = normalizedHeaders.findIndex((h) => h === 'question' || h.startsWith('question'));
-    const aIdx = normalizedHeaders.findIndex((h) => h === 'option a' || h === 'option_a' || h === 'a');
-    const bIdx = normalizedHeaders.findIndex((h) => h === 'option b' || h === 'option_b' || h === 'b');
-    const cIdx = normalizedHeaders.findIndex((h) => h === 'option c' || h === 'option_c' || h === 'c');
-    const dIdx = normalizedHeaders.findIndex((h) => h === 'option d' || h === 'option_d' || h === 'd');
-    const ansIdx = normalizedHeaders.findIndex((h) => h === 'answer' || h === 'correct answer' || h === 'correct' || h === 'ans');
+    const qIdx = normalizedHeaders.findIndex(
+      (h) => h === 'question' || h === 'question text' || h === 'prompt' || h === 'problem' || h.startsWith('question')
+    );
+    const codingIdx = normalizedHeaders.findIndex(
+      (h) => h === 'coding' || h === 'code' || h === 'code block' || h === 'code snippet' || h === 'programming code'
+    );
+    const aIdx = normalizedHeaders.findIndex(
+      (h) => h === 'op1' || h === 'op 1' || h === 'option 1' || h === 'option a' || h === 'option_a' || h === 'choice a' || h === 'choice 1' || h === 'a'
+    );
+    const bIdx = normalizedHeaders.findIndex(
+      (h) => h === 'op2' || h === 'op 2' || h === 'option 2' || h === 'option b' || h === 'option_b' || h === 'choice b' || h === 'choice 2' || h === 'b'
+    );
+    const cIdx = normalizedHeaders.findIndex(
+      (h) => h === 'op3' || h === 'op 3' || h === 'option 3' || h === 'option c' || h === 'option_c' || h === 'choice c' || h === 'choice 3' || h === 'c'
+    );
+    const dIdx = normalizedHeaders.findIndex(
+      (h) => h === 'op4' || h === 'op 4' || h === 'option 4' || h === 'option d' || h === 'option_d' || h === 'choice d' || h === 'choice 4' || h === 'd'
+    );
+    const ansIdx = normalizedHeaders.findIndex(
+      (h) => h === 'answer' || h === 'correct answer' || h === 'correct' || h === 'ans'
+    );
 
     if (qIdx !== -1 && aIdx !== -1 && bIdx !== -1 && cIdx !== -1 && dIdx !== -1 && ansIdx !== -1) {
       headerRowIndex = i;
       qCol = qIdx;
+      codingCol = codingIdx; // can be -1 if 6-column sheet without Coding
       optACol = aIdx;
       optBCol = bIdx;
       optCCol = cIdx;
@@ -246,11 +272,23 @@ export async function parseAndValidateExcel(
   }
 
   if (headerRowIndex === -1) {
-    // Fallback: if first row has at least 6 columns, check column order A, B, C, D, E, F
+    // Fallback: Check column count in first row
     const firstRow = (rawRows[0] || []).map((c: any) => String(c).trim());
-    if (firstRow.length >= 6) {
+    if (firstRow.length >= 7) {
+      // 7-column positional: Question | Coding | Op1 | Op2 | Op3 | Op4 | Answer
       headerRowIndex = 0;
       qCol = 0;
+      codingCol = 1;
+      optACol = 2;
+      optBCol = 3;
+      optCCol = 4;
+      optDCol = 5;
+      ansCol = 6;
+    } else if (firstRow.length >= 6) {
+      // 6-column legacy positional: Question | Option A | Option B | Option C | Option D | Answer
+      headerRowIndex = 0;
+      qCol = 0;
+      codingCol = -1;
       optACol = 1;
       optBCol = 2;
       optCCol = 3;
@@ -258,7 +296,7 @@ export async function parseAndValidateExcel(
       ansCol = 5;
     } else {
       throw new Error(
-        `Invalid Excel template headers in sheet '${targetSheetName}'. Required columns: Question, Option A, Option B, Option C, Option D, Answer.`
+        `Invalid Excel template headers in sheet '${targetSheetName}'. Required columns: Question, Coding, Op1, Op2, Op3, Op4, Answer (or legacy 6 columns: Question, Option A, Option B, Option C, Option D, Answer).`
       );
     }
   }
@@ -281,8 +319,26 @@ export async function parseAndValidateExcel(
     const optD = String(rawRow[optDCol] ?? '').trim();
     const answerRaw = String(rawRow[ansCol] ?? '').trim();
 
+    // Extract coding snippet if column present
+    let codeSnippet: string | undefined = undefined;
+    if (codingCol !== -1 && rawRow[codingCol] !== undefined && rawRow[codingCol] !== null) {
+      const rawCode = String(rawRow[codingCol]);
+      const trimmedCode = rawCode.trim();
+      if (trimmedCode.length > 0 && trimmedCode.toUpperCase() !== 'EMPTY') {
+        // Normalize line endings to \n while preserving internal line indentation
+        codeSnippet = rawCode
+          .replace(/\r\n/g, '\n')
+          .replace(/\r/g, '\n')
+          .replace(/^\n+/, '')
+          .replace(/\n+$/, '');
+        if (codeSnippet.trim().length === 0) {
+          codeSnippet = undefined;
+        }
+      }
+    }
+
     // Check if entire row is empty
-    if (!questionText && !optA && !optB && !optC && !optD && !answerRaw) {
+    if (!questionText && !codeSnippet && !optA && !optB && !optC && !optD && !answerRaw) {
       continue;
     }
 
@@ -342,6 +398,7 @@ export async function parseAndValidateExcel(
     rows.push({
       rowNumber: rowNum,
       questionText,
+      codeSnippet,
       optionA: optA,
       optionB: optB,
       optionC: optC,

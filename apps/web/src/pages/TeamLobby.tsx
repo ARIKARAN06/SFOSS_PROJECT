@@ -217,7 +217,7 @@ export const TeamLobby: React.FC<{ onStartQuiz: (roundId: string) => void }> = (
                     {round.roundNumber === 1 ? '👥 Team Round' : '👤 Individual Round'}
                   </div>
                   <p style={{ color: '#64748B', fontSize: '0.85rem' }}>
-                    Duration: {round.durationMinutes} minutes | Scheme: +1 for Correct, -1 for Wrong
+                    Duration: {round.durationMinutes} minutes | Scheme: +2 for Correct, -1 for Wrong, 0 for Unanswered
                   </p>
                 </div>
 

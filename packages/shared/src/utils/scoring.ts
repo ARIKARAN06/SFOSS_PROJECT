@@ -14,10 +14,11 @@ export interface RawScoreInput {
 
 /**
  * Calculates raw score from correct, wrong, and unanswered counts.
- * Formula: (Correct * +1) + (Wrong * -1) + (Unanswered * 0)
+ * Official FOSSFURY 26 Formula: (Correct * +2) + (Wrong * -1) + (Unanswered * 0)
+ * Total Score = (Correct Answers × 2) - (Wrong Answers × 1)
  */
 export function calculateRawScore(correct: number, wrong: number): number {
-  return correct * 1.0 + wrong * -1.0;
+  return correct * 2.0 + wrong * -1.0;
 }
 
 /**

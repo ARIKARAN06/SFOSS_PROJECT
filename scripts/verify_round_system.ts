@@ -316,14 +316,14 @@ async function runVerification() {
   expectEqual(leaderboard[0].playerName, 'Arikaran', 'Rank 1 must display actual player name Arikaran');
   expectEqual(leaderboard[0].competitorCode, '01-A', 'Rank 1 competitor code must be 01-A');
   expectEqual(leaderboard[0].originalTeamNumber, 1, 'Rank 1 original team number must be 1');
-  expectEqual(leaderboard[0].score, 1, 'Rank 1 score must be 1');
+  expectEqual(leaderboard[0].score, 2, 'Rank 1 score must be 2 (+2 for correct)');
 
   expectEqual(leaderboard[1].playerName, 'Karthik', 'Rank 2 must display player name Karthik');
   expectEqual(leaderboard[1].competitorCode, '01-B', 'Rank 2 competitor code must be 01-B (tie-broken by time)');
-  expectEqual(leaderboard[1].score, 1, 'Rank 2 score must be 1');
+  expectEqual(leaderboard[1].score, 2, 'Rank 2 score must be 2 (+2 for correct)');
 
   expectEqual(leaderboard[2].competitorCode, '02-A', 'Rank 3 competitor code must be 02-A');
-  expectEqual(leaderboard[2].score, -1, 'Rank 3 score must be -1');
+  expectEqual(leaderboard[2].score, -1, 'Rank 3 score must be -1 (-1 for wrong)');
   console.log('✅ Round 2 Scoreboard verified with all required player names, original teams, and tie-breaking.');
 
   // 8. Test Answer Paper Viewer for Competitor
@@ -334,7 +334,7 @@ async function runVerification() {
   expectEqual(paper.playerName, 'Arikaran', 'Answer paper playerName');
   expectEqual(paper.competitorCode, '01-A', 'Answer paper competitorCode');
   expectEqual(paper.originalTeamNumber, 1, 'Answer paper originalTeamNumber');
-  expectEqual(paper.score, 1, 'Answer paper score');
+  expectEqual(paper.score, 2, 'Answer paper score must be 2 (+2 for correct)');
   expectEqual(paper.answerPaper.length, r2Questions.length, 'Answer paper questions length');
   expectEqual(paper.answerPaper[0].status, 'CORRECT', 'Question status');
   console.log('✅ Answer Paper verified: Header includes Player Name, Competitor Code, Original Team, and Question breakdown.');
